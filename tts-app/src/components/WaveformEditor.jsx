@@ -85,6 +85,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const [clipboard, setClipboard] = useState(null);
   const [audioBuffer, setAudioBuffer] = useState(null);
   const [loudnessMultiplier, setLoudnessMultiplier] = useState(1.0);
+  const [containerReady, setContainerReady] = useState(false);
   const audioContextRef = useRef(null);
   const regionsPluginRef = useRef(null);
   const tempUrlRef = useRef(null); // Track temporary object URLs for cleanup
@@ -106,6 +107,16 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         URL.revokeObjectURL(tempUrlRef.current);
       }
     };
+  }, []);
+
+  // Ref callback to track when container is ready
+  const setWaveformRef = useCallback((node) => {
+    waveformRef.current = node;
+    if (node) {
+      setContainerReady(true);
+    } else {
+      setContainerReady(false);
+    }
   }, []);
 
   // Helper to create and track object URL
@@ -138,7 +149,13 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
   // Initialize WaveSurfer
   useEffect(() => {
-    if (!open || !waveformRef.current) return;
+    if (!open || !containerReady || !waveformRef.current) return;
+
+    // Clean up any existing instance (important for React StrictMode)
+    if (wavesurferRef.current) {
+      wavesurferRef.current.destroy();
+      wavesurferRef.current = null;
+    }
 
     // Create regions plugin
     const regionsPlugin = RegionsPlugin.create();
@@ -198,7 +215,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     return () => {
       wavesurfer.destroy();
     };
-  }, [open, audioUrl, volume]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, audioUrl, containerReady]); // containerReady ensures DOM is ready
 
   // Decode audio when dialog opens
   useEffect(() => {
@@ -601,7 +619,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           sx={{ p: 2, mb: 2, bgcolor: '#fff', border: '1px solid', borderColor: 'divider' }}
           onWheel={handleWheel}
         >
-          <div ref={waveformRef} style={{ width: '100%' }} />
+          <div ref={setWaveformRef} style={{ width: '100%', minHeight: '150px' }} />
           
           {/* Time display */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
