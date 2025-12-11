@@ -86,6 +86,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const [audioBuffer, setAudioBuffer] = useState(null);
   const [loudnessMultiplier, setLoudnessMultiplier] = useState(1.0);
   const [containerReady, setContainerReady] = useState(false);
+  const [isWavesurferReady, setIsWavesurferReady] = useState(false);
   const audioContextRef = useRef(null);
   const regionsPluginRef = useRef(null);
   const tempUrlRef = useRef(null); // Track temporary object URLs for cleanup
@@ -171,6 +172,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
       cursorWidth: 2,
       height: 150,
       barGap: 1,
+      minPxPerSec: zoom, // Set initial zoom level
       plugins: [regionsPlugin],
     });
 
@@ -183,6 +185,9 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     wavesurfer.on('ready', () => {
       setDuration(wavesurfer.getDuration());
       wavesurfer.setVolume(volume);
+      setIsWavesurferReady(true);
+      // Apply initial zoom when ready
+      wavesurfer.zoom(zoom);
     });
 
     wavesurfer.on('play', () => setIsPlaying(true));
@@ -192,6 +197,14 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
     // Region events for selection
     regionsPlugin.on('region-created', (region) => {
+      // Clear all existing regions before adding the new one (only allow one region at a time)
+      const allRegions = regionsPlugin.getRegions();
+      allRegions.forEach(existingRegion => {
+        if (existingRegion.id !== region.id) {
+          existingRegion.remove();
+        }
+      });
+      
       setSelection({
         start: region.start,
         end: region.end,
@@ -213,9 +226,10 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     });
 
     return () => {
+      setIsWavesurferReady(false);
       wavesurfer.destroy();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- volume is intentionally omitted as it's handled in a separate useEffect (lines 231-235)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volume and zoom are intentionally omitted as they're handled in separate useEffects
   }, [open, audioUrl, containerReady]); // containerReady ensures DOM is ready
 
   // Decode audio when dialog opens
@@ -225,12 +239,12 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     }
   }, [open, audioBlob, decodeAudioForEditing]);
 
-  // Update zoom
+  // Update zoom - only when wavesurfer is ready
   useEffect(() => {
-    if (wavesurferRef.current) {
+    if (wavesurferRef.current && isWavesurferReady) {
       wavesurferRef.current.zoom(zoom);
     }
-  }, [zoom]);
+  }, [zoom, isWavesurferReady]);
 
   // Update volume
   useEffect(() => {
@@ -619,7 +633,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           sx={{ p: 2, mb: 2, bgcolor: '#fff', border: '1px solid', borderColor: 'divider' }}
           onWheel={handleWheel}
         >
-          <div ref={setWaveformRef} style={{ width: '100%', minHeight: '150px' }} />
+          <div ref={setWaveformRef} style={{ width: '100%', minHeight: '150px', overflowX: 'auto' }} />
           
           {/* Time display */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
