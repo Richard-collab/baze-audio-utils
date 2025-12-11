@@ -590,42 +590,48 @@ function App() {
 
   // Generate test audio for testing waveform editor
   const handleGenerateTestAudio = useCallback(() => {
-    const audioContext = new AudioContext();
-    const sampleRate = 8000;
-    const duration = 3; // 3 seconds
-    const numSamples = sampleRate * duration;
-    
-    // Create a buffer
-    const buffer = audioContext.createBuffer(1, numSamples, sampleRate);
-    const channelData = buffer.getChannelData(0);
-    
-    // Generate a sine wave with varying frequency for an interesting waveform
-    for (let i = 0; i < numSamples; i++) {
-      const t = i / sampleRate;
-      // Create a more interesting waveform with multiple frequencies
-      channelData[i] = 0.5 * Math.sin(2 * Math.PI * 440 * t) + 
-                       0.3 * Math.sin(2 * Math.PI * 880 * t) +
-                       0.2 * Math.sin(2 * Math.PI * 220 * t);
+    try {
+      // AudioContext is created on user interaction (button click), which satisfies browser requirements
+      const audioContext = new AudioContext();
+      // Using 8000 Hz to match the TTS server's output sample rate for consistency
+      const sampleRate = 8000;
+      const duration = 3; // 3 seconds
+      const numSamples = sampleRate * duration;
+      
+      // Create a buffer
+      const buffer = audioContext.createBuffer(1, numSamples, sampleRate);
+      const channelData = buffer.getChannelData(0);
+      
+      // Generate a sine wave with varying frequency for an interesting waveform
+      for (let i = 0; i < numSamples; i++) {
+        const t = i / sampleRate;
+        // Create a more interesting waveform with multiple frequencies
+        channelData[i] = 0.5 * Math.sin(2 * Math.PI * 440 * t) + 
+                         0.3 * Math.sin(2 * Math.PI * 880 * t) +
+                         0.2 * Math.sin(2 * Math.PI * 220 * t);
+      }
+      
+      // Convert to WAV blob
+      const wavBlob = bufferToWave(buffer, buffer.length);
+      const audioUrl = URL.createObjectURL(wavBlob);
+      
+      // Create a test audio group
+      const testGroup = {
+        index: '测试音频',
+        text: '这是一个测试音频，用于测试波形编辑器功能',
+        segments: [{
+          text: '测试音频片段 - 点击编辑按钮打开波形编辑器',
+          blob: wavBlob,
+          url: audioUrl,
+          played: false
+        }]
+      };
+      
+      setAudioGroups([testGroup]);
+      setMessage({ text: '测试音频已生成，请点击编辑按钮测试波形编辑器', type: 'success' });
+    } catch (error) {
+      setMessage({ text: `生成测试音频失败: ${error.message}`, type: 'error' });
     }
-    
-    // Convert to WAV blob
-    const wavBlob = bufferToWave(buffer, buffer.length);
-    const audioUrl = URL.createObjectURL(wavBlob);
-    
-    // Create a test audio group
-    const testGroup = {
-      index: '测试音频',
-      text: '这是一个测试音频，用于测试波形编辑器功能',
-      segments: [{
-        text: '测试音频片段 - 点击编辑按钮打开波形编辑器',
-        blob: wavBlob,
-        url: audioUrl,
-        played: false
-      }]
-    };
-    
-    setAudioGroups([testGroup]);
-    setMessage({ text: '测试音频已生成，请点击编辑按钮测试波形编辑器', type: 'success' });
   }, []);
 
   return (

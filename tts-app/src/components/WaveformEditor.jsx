@@ -215,7 +215,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     return () => {
       wavesurfer.destroy();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volume is intentionally omitted as it's handled in a separate useEffect (lines 231-235)
   }, [open, audioUrl, containerReady]); // containerReady ensures DOM is ready
 
   // Decode audio when dialog opens
