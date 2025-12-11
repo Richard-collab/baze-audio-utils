@@ -6,6 +6,7 @@ import {
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
+import LoopIcon from '@mui/icons-material/Loop';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
@@ -75,6 +76,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const waveformRef = useRef(null);
   const wavesurferRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isLooping, setIsLooping] = useState(false);
   const [zoom, setZoom] = useState(50);
   const [volume, setVolume] = useState(1.0);
   const [duration, setDuration] = useState(0);
@@ -90,16 +92,28 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const audioContextRef = useRef(null);
   const regionsPluginRef = useRef(null);
   const tempUrlRef = useRef(null); // Track temporary object URLs for cleanup
+  const loopingRef = useRef(false); // Track loop state to avoid stale closure
 
   // Store refs for functions that need to be called from useEffect
   const historyRef = useRef(history);
   const historyIndexRef = useRef(historyIndex);
+  const selectionRef = useRef(selection); // Track selection for loop playback
   
   // Keep refs in sync
   useEffect(() => {
     historyRef.current = history;
     historyIndexRef.current = historyIndex;
   }, [history, historyIndex]);
+
+  // Keep selection ref in sync
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
+
+  // Keep looping ref in sync
+  useEffect(() => {
+    loopingRef.current = isLooping;
+  }, [isLooping]);
 
   // Cleanup temporary URL on unmount
   useEffect(() => {
@@ -191,8 +205,32 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
     wavesurfer.on('play', () => setIsPlaying(true));
     wavesurfer.on('pause', () => setIsPlaying(false));
-    wavesurfer.on('finish', () => setIsPlaying(false));
-    wavesurfer.on('timeupdate', (time) => setCurrentTime(time));
+    wavesurfer.on('finish', () => {
+      setIsPlaying(false);
+      // If looping is enabled and we have a selection, restart from selection start
+      if (loopingRef.current && selectionRef.current) {
+        wavesurfer.setTime(selectionRef.current.start);
+        wavesurfer.play();
+      }
+    });
+    
+    // Track last loop time to prevent rapid consecutive loops
+    let lastLoopTime = 0;
+    const loopDebounceMs = 100; // 100ms debounce to prevent stuttering
+    
+    wavesurfer.on('timeupdate', (time) => {
+      setCurrentTime(time);
+      // Check if we need to loop back to selection start
+      // Add a small tolerance (0.05s) to prevent edge cases where time exactly equals end
+      if (loopingRef.current && selectionRef.current && time >= selectionRef.current.end - 0.05) {
+        const now = Date.now();
+        // Debounce to prevent infinite loops or stuttering
+        if (now - lastLoopTime > loopDebounceMs) {
+          lastLoopTime = now;
+          wavesurfer.setTime(selectionRef.current.start);
+        }
+      }
+    });
 
     // Region events for selection
     regionsPlugin.on('region-created', (region) => {
@@ -264,9 +302,18 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     if (isPlaying) {
       wavesurferRef.current.pause();
     } else {
+      // If looping is enabled and we have a selection, start from selection start
+      if (isLooping && selection) {
+        wavesurferRef.current.setTime(selection.start);
+      }
       wavesurferRef.current.play();
     }
-  }, [isPlaying]);
+  }, [isPlaying, isLooping, selection]);
+
+  // Toggle loop mode
+  const handleToggleLoop = useCallback(() => {
+    setIsLooping(prev => !prev);
+  }, []);
 
   // Clear selection - moved before functions that use it
   const clearSelection = useCallback(() => {
@@ -534,6 +581,19 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         {/* Toolbar */}
         <Paper sx={{ p: 1, mb: 2, bgcolor: '#F8F9FA' }}>
           <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center" justifyContent="center">
+            {/* Loop Toggle */}
+            <Tooltip title={isLooping ? "关闭循环播放" : "开启循环播放选区 (需要先选择区域)"}>
+              <Button
+                variant={isLooping ? "contained" : "outlined"}
+                startIcon={<LoopIcon />}
+                onClick={handleToggleLoop}
+                color={isLooping ? "secondary" : "primary"}
+                disabled={!selection}
+              >
+                {isLooping ? '循环中' : '循环'}
+              </Button>
+            </Tooltip>
+
             {/* Play/Stop */}
             <Tooltip title={isPlaying ? "停止 (空格)" : "播放 (空格)"}>
               <Button
@@ -762,6 +822,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         {/* Help Text */}
         <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
           提示：在波形上拖动可创建选区，使用工具栏按钮或快捷键进行编辑操作。
+          循环播放：选择区域后点击循环按钮，播放到选区右边界时会自动从左边界继续播放。
           快捷键：空格(播放/停止)、Ctrl+C(复制)、Ctrl+X(剪切)、Ctrl+V(粘贴)、Ctrl+S(保存)、Ctrl+Z(撤销)、Ctrl+Y(恢复)
         </Typography>
       </DialogContent>
