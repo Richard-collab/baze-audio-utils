@@ -186,8 +186,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
       setDuration(wavesurfer.getDuration());
       wavesurfer.setVolume(volume);
       setIsWavesurferReady(true);
-      // Apply initial zoom when ready
-      wavesurfer.zoom(zoom);
+      // Note: Initial zoom is set via minPxPerSec option during initialization
     });
 
     wavesurfer.on('play', () => setIsPlaying(true));
@@ -197,9 +196,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
     // Region events for selection
     regionsPlugin.on('region-created', (region) => {
-      // Clear all existing regions before adding the new one (only allow one region at a time)
-      const allRegions = regionsPlugin.getRegions();
-      allRegions.forEach(existingRegion => {
+      // Clear all existing regions except the new one (only allow one region at a time)
+      regionsPlugin.getRegions().forEach(existingRegion => {
         if (existingRegion.id !== region.id) {
           existingRegion.remove();
         }
