@@ -1,0 +1,8 @@
+/* App specific styles */
+#root {
+  width: 100%;
+}
+
+.pulse-animation {
+  animation: pulse 2s infinite;
+}
