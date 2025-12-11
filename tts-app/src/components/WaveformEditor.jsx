@@ -85,6 +85,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const [clipboard, setClipboard] = useState(null);
   const [audioBuffer, setAudioBuffer] = useState(null);
   const [loudnessMultiplier, setLoudnessMultiplier] = useState(1.0);
+  const [containerReady, setContainerReady] = useState(false);
+  const [isWavesurferReady, setIsWavesurferReady] = useState(false);
   const audioContextRef = useRef(null);
   const regionsPluginRef = useRef(null);
   const tempUrlRef = useRef(null); // Track temporary object URLs for cleanup
@@ -106,6 +108,16 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         URL.revokeObjectURL(tempUrlRef.current);
       }
     };
+  }, []);
+
+  // Ref callback to track when container is ready
+  const setWaveformRef = useCallback((node) => {
+    waveformRef.current = node;
+    if (node) {
+      setContainerReady(true);
+    } else {
+      setContainerReady(false);
+    }
   }, []);
 
   // Helper to create and track object URL
@@ -138,7 +150,13 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
   // Initialize WaveSurfer
   useEffect(() => {
-    if (!open || !waveformRef.current) return;
+    if (!open || !containerReady || !waveformRef.current) return;
+
+    // Clean up any existing instance (important for React StrictMode)
+    if (wavesurferRef.current) {
+      wavesurferRef.current.destroy();
+      wavesurferRef.current = null;
+    }
 
     // Create regions plugin
     const regionsPlugin = RegionsPlugin.create();
@@ -154,6 +172,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
       cursorWidth: 2,
       height: 150,
       barGap: 1,
+      minPxPerSec: zoom, // Set initial zoom level
       plugins: [regionsPlugin],
     });
 
@@ -166,6 +185,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     wavesurfer.on('ready', () => {
       setDuration(wavesurfer.getDuration());
       wavesurfer.setVolume(volume);
+      setIsWavesurferReady(true);
+      // Note: Initial zoom is set via minPxPerSec option during initialization
     });
 
     wavesurfer.on('play', () => setIsPlaying(true));
@@ -175,6 +196,13 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
     // Region events for selection
     regionsPlugin.on('region-created', (region) => {
+      // Clear all existing regions except the new one (only allow one region at a time)
+      regionsPlugin.getRegions().forEach(existingRegion => {
+        if (existingRegion.id !== region.id) {
+          existingRegion.remove();
+        }
+      });
+      
       setSelection({
         start: region.start,
         end: region.end,
@@ -196,9 +224,11 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     });
 
     return () => {
+      setIsWavesurferReady(false);
       wavesurfer.destroy();
     };
-  }, [open, audioUrl, volume]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volume and zoom are intentionally omitted as they're handled in separate useEffects
+  }, [open, audioUrl, containerReady]); // containerReady ensures DOM is ready
 
   // Decode audio when dialog opens
   useEffect(() => {
@@ -207,12 +237,12 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     }
   }, [open, audioBlob, decodeAudioForEditing]);
 
-  // Update zoom
+  // Update zoom - only when wavesurfer is ready
   useEffect(() => {
-    if (wavesurferRef.current) {
+    if (wavesurferRef.current && isWavesurferReady) {
       wavesurferRef.current.zoom(zoom);
     }
-  }, [zoom]);
+  }, [zoom, isWavesurferReady]);
 
   // Update volume
   useEffect(() => {
@@ -601,7 +631,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           sx={{ p: 2, mb: 2, bgcolor: '#fff', border: '1px solid', borderColor: 'divider' }}
           onWheel={handleWheel}
         >
-          <div ref={waveformRef} style={{ width: '100%' }} />
+          <div ref={setWaveformRef} style={{ width: '100%', minHeight: '150px', overflowX: 'auto' }} />
           
           {/* Time display */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
