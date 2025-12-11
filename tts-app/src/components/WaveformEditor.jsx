@@ -17,7 +17,7 @@ import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import CloseIcon from '@mui/icons-material/Close';
 import WaveSurfer from 'wavesurfer.js';
-import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.js';
+import RegionsPlugin from 'wavesurfer.js/plugins/regions';
 
 // Helper function to convert AudioBuffer to WAV Blob (outside component)
 function bufferToWaveBlob(buffer) {
@@ -87,6 +87,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const [loudnessMultiplier, setLoudnessMultiplier] = useState(1.0);
   const audioContextRef = useRef(null);
   const regionsPluginRef = useRef(null);
+  const tempUrlRef = useRef(null); // Track temporary object URLs for cleanup
 
   // Store refs for functions that need to be called from useEffect
   const historyRef = useRef(history);
@@ -97,6 +98,26 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     historyRef.current = history;
     historyIndexRef.current = historyIndex;
   }, [history, historyIndex]);
+
+  // Cleanup temporary URL on unmount
+  useEffect(() => {
+    return () => {
+      if (tempUrlRef.current) {
+        URL.revokeObjectURL(tempUrlRef.current);
+      }
+    };
+  }, []);
+
+  // Helper to create and track object URL
+  const createTempUrl = useCallback((blob) => {
+    // Revoke previous URL to prevent memory leak
+    if (tempUrlRef.current) {
+      URL.revokeObjectURL(tempUrlRef.current);
+    }
+    const url = URL.createObjectURL(blob);
+    tempUrlRef.current = url;
+    return url;
+  }, []);
 
   // Decode audio for editing operations
   const decodeAudioForEditing = useCallback(async () => {
@@ -239,9 +260,9 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
     // Update waveform display
     const blob = bufferToWaveBlob(newBuffer);
-    const url = URL.createObjectURL(blob);
+    const url = createTempUrl(blob);
     wavesurferRef.current.load(url);
-  }, []);
+  }, [createTempUrl]);
 
   // Copy selection
   const handleCopy = useCallback(() => {
@@ -386,10 +407,10 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
       setAudioBuffer(historyRef.current[newIndex]);
       
       const blob = bufferToWaveBlob(historyRef.current[newIndex]);
-      const url = URL.createObjectURL(blob);
+      const url = createTempUrl(blob);
       wavesurferRef.current.load(url);
     }
-  }, []);
+  }, [createTempUrl]);
 
   // Redo
   const handleRedo = useCallback(() => {
@@ -399,10 +420,10 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
       setAudioBuffer(historyRef.current[newIndex]);
       
       const blob = bufferToWaveBlob(historyRef.current[newIndex]);
-      const url = URL.createObjectURL(blob);
+      const url = createTempUrl(blob);
       wavesurferRef.current.load(url);
     }
-  }, []);
+  }, [createTempUrl]);
 
   // Save and close
   const handleSave = useCallback(() => {
