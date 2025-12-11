@@ -84,6 +84,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [clipboard, setClipboard] = useState(null);
   const [audioBuffer, setAudioBuffer] = useState(null);
+  const [loudnessMultiplier, setLoudnessMultiplier] = useState(1.0);
   const audioContextRef = useRef(null);
   const regionsPluginRef = useRef(null);
 
@@ -632,32 +633,52 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
               </Typography>
               <Stack direction="row" spacing={2} alignItems="center">
                 <Slider
-                  value={1}
+                  value={loudnessMultiplier}
+                  onChange={(e, v) => setLoudnessMultiplier(v)}
                   min={0.1}
                   max={3}
                   step={0.1}
                   valueLabelDisplay="auto"
+                  valueLabelFormat={(v) => `${Math.round(v * 100)}%`}
                   sx={{ flex: 1 }}
-                  disabled
                 />
                 <Button 
                   variant="outlined" 
                   size="small"
-                  onClick={() => handleVolumeAdjust(0.5)}
+                  onClick={() => {
+                    handleVolumeAdjust(loudnessMultiplier);
+                    setLoudnessMultiplier(1.0);
+                  }}
+                >
+                  应用
+                </Button>
+                <Button 
+                  variant="outlined" 
+                  size="small"
+                  onClick={() => {
+                    handleVolumeAdjust(0.5);
+                    setLoudnessMultiplier(1.0);
+                  }}
                 >
                   -50%
                 </Button>
                 <Button 
                   variant="outlined" 
                   size="small"
-                  onClick={() => handleVolumeAdjust(1.5)}
+                  onClick={() => {
+                    handleVolumeAdjust(1.5);
+                    setLoudnessMultiplier(1.0);
+                  }}
                 >
                   +50%
                 </Button>
                 <Button 
                   variant="outlined" 
                   size="small"
-                  onClick={() => handleVolumeAdjust(2.0)}
+                  onClick={() => {
+                    handleVolumeAdjust(2.0);
+                    setLoudnessMultiplier(1.0);
+                  }}
                 >
                   +100%
                 </Button>
