@@ -308,7 +308,7 @@ function App() {
 
   // Generate single audio
   const generateSingleAudio = useCallback(async (text, voiceVal, speedVal, volumeVal, pitchVal) => {
-    const response = await fetchWithRetry('/synthesize', {
+    const response = await fetchWithRetry('http://192.168.23.43:6789/synthesize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
