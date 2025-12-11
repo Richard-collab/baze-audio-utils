@@ -1153,8 +1153,20 @@
                     const response = await fetch(url, options);
                     
                     if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.error || `请求失败: ${response.status}`);
+                        // Check content type before parsing as JSON
+                        const contentType = response.headers.get('content-type');
+                        if (contentType && contentType.includes('application/json')) {
+                            try {
+                                const errorData = await response.json();
+                                throw new Error(errorData.error || `请求失败: ${response.status}`);
+                            } catch (jsonError) {
+                                // If JSON parsing fails, throw generic error
+                                throw new Error(`请求失败: ${response.status}`);
+                            }
+                        } else {
+                            // Response is not JSON (e.g., HTML error page)
+                            throw new Error(`请求失败: ${response.status}`);
+                        }
                     }
                     
                     return response;
