@@ -1,0 +1,2254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>语音合成</title>
+    <!-- 使用Flask的url_for加载本地静态资源 -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='libs/css/all.min.css') }}">
+    <script src="{{ url_for('static', filename='libs/js/xlsx.full.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/js/jszip.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='libs/js/FileSaver.min.js') }}"></script>
+    <style>
+        /* 样式保持不变，与之前相同 */
+        :root {
+            --primary: #6C5CE7;
+            --primary-light: #A29BFE;
+            --primary-dark: #5649C0;
+            --secondary: #00CEC9;
+            --accent: #FD79A8;
+            --light-bg: #F9F8FF;
+            --card-bg: #FFFFFF;
+            --text-primary: #2D3436;
+            --text-secondary: #636E72;
+            --text-light: #B2BEC3;
+            --success: #00B894;
+            --warning: #FDCB6E;
+            --error: #E84393;
+            --border-light: #DFE6E9;
+            --shadow: 0 8px 25px rgba(108, 92, 231, 0.08);
+            --shadow-hover: 0 12px 35px rgba(108, 92, 231, 0.12);
+            --playing-bg: rgba(255, 165, 0, 0.05); /* 新增：播放中的橙色背景 */
+            --playing-border: #FF9800; /* 新增：播放中的橙色边框 */
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            background: var(--light-bg);
+            color: var(--text-primary);
+            padding: 15px;
+            position: relative;
+            overflow-x: hidden;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 10% 20%, rgba(108, 92, 231, 0.03) 0%, transparent 20%),
+                radial-gradient(circle at 90% 80%, rgba(0, 206, 201, 0.03) 0%, transparent 20%);
+            z-index: -1;
+        }
+
+        .container {
+            max-width: 750px;
+            margin: 20px auto;
+            background: var(--card-bg);
+            border-radius: 18px;
+            padding: 25px;
+            box-shadow: var(--shadow);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .container::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            border-radius: 18px 18px 0 0;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 0px;
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            position: relative;
+            padding-bottom: 15px;
+        }
+
+        h1::after {
+            content: "";
+            display: block;
+            width: 60px;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            margin: 12px auto;
+            border-radius: 2px;
+        }
+
+        h1 i {
+            color: var(--primary);
+            margin-right: 10px;
+            font-size: 1.6rem;
+        }
+
+        .info {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-bottom: 20px;
+            line-height: 1.5;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* 标签页样式 */
+        .tabs-container {
+            margin-bottom: 25px;
+        }
+
+        .tabs {
+            display: flex;
+            background: rgba(108, 92, 231, 0.05);
+            border-radius: 12px;
+            padding: 6px;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px 20px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 8px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .tab.active {
+            background: var(--card-bg);
+            color: var(--primary);
+            box-shadow: 0 4px 12px rgba(108, 92, 231, 0.15);
+        }
+
+        .tab i {
+            font-size: 1rem;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 20px;
+            background: rgba(108, 92, 231, 0.03);
+            border-radius: 12px;
+            border: 1px dashed var(--primary-light);
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .tab-content-title {
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+        }
+
+        .tab-content-title i {
+            margin-right: 8px;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .input-group {
+            margin-bottom: 18px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-group label i {
+            margin-right: 6px;
+            color: var(--primary);
+            font-size: 0.95rem;
+        }
+
+        select, textarea, input[type="file"] {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #FFFFFF;
+            border: 1px solid var(--border-light);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            outline: none;
+            font-family: inherit;
+        }
+
+        select:focus, textarea:focus, input[type="file"]:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(108, 92, 231, 0.15);
+            transform: translateY(-1px);
+        }
+
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23636E72' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            background-size: 1em;
+            cursor: pointer;
+        }
+
+        textarea {
+            min-height: 150px;
+            resize: vertical;
+            line-height: 1.4;
+        }
+
+        textarea::placeholder {
+            color: var(--text-light);
+        }
+
+        .file-input-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .file-input-label {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 16px;
+            background: var(--primary-light);
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .file-input-label:hover {
+            background: var(--primary);
+        }
+
+        .file-input-label i {
+            margin-right: 6px;
+        }
+
+        .file-name {
+            flex: 1;
+            padding: 10px 12px;
+            background: #FFFFFF;
+            border: 1px solid var(--border-light);
+            border-radius: 10px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        input[type="file"] {
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .btn-container {
+            text-align: center;
+            margin: 25px 0;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        button {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 40px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 20px rgba(108, 92, 231, 0.3);
+            position: relative;
+            overflow: hidden;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 25px rgba(108, 92, 231, 0.4);
+            background: linear-gradient(135deg, var(--primary-light), var(--primary));
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        button::after {
+            content: "";
+            position: absolute;
+            top: -50%;
+            left: -60%;
+            width: 15px;
+            height: 200%;
+            background: rgba(255, 255, 255, 0.2);
+            transform: rotate(30deg);
+            transition: all 0.6s ease;
+        }
+
+        button:hover:not(:disabled)::after {
+            left: 120%;
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, var(--secondary), #00a8a3);
+            box-shadow: 0 8px 20px rgba(0, 206, 201, 0.3);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: linear-gradient(135deg, #00e5de, var(--secondary));
+            box-shadow: 0 12px 25px rgba(0, 206, 201, 0.4);
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            border-radius: 20px;
+            box-shadow: 0 4px 10px rgba(108, 92, 231, 0.2);
+        }
+
+        /* 新增：删除按钮样式 */
+        .btn-danger {
+            background: linear-gradient(135deg, var(--error), #d63031);
+            box-shadow: 0 4px 10px rgba(232, 67, 147, 0.2);
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: linear-gradient(135deg, #ff7675, var(--error));
+            box-shadow: 0 6px 15px rgba(232, 67, 147, 0.3);
+        }
+        
+        /* 新增：插入停顿按钮样式 */
+        .btn-pause {
+            background: linear-gradient(135deg, var(--warning), #e67e22);
+            box-shadow: 0 4px 10px rgba(253, 203, 110, 0.2);
+        }
+
+        .btn-pause:hover:not(:disabled) {
+            background: linear-gradient(135deg, #fdcb6e, var(--warning));
+            box-shadow: 0 6px 15px rgba(253, 203, 110, 0.3);
+        }
+
+        .progress-container {
+            margin: 20px 0;
+            background: #F8F9FA;
+            border-radius: 12px;
+            padding: 18px;
+            border: 1px solid var(--border-light);
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            align-items: center;
+        }
+
+        .status {
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+        }
+
+        .progress-percent {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background-color: #E9ECEF;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            width: 0%;
+            border-radius: 8px;
+            transition: width 0.5s ease;
+            position: relative;
+        }
+
+        .progress::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            animation: progressShine 2s infinite;
+        }
+
+        @keyframes progressShine {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+            font-size: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(108, 92, 231, 0.2);
+            border-radius: 50%;
+            border-top-color: var(--primary);
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #message {
+            text-align: center;
+            padding: 14px;
+            border-radius: 12px;
+            margin: 18px 0;
+            font-weight: 600;
+            font-size: 0.95rem;
+            animation: fadeIn 0.5s ease;
+        }
+
+        #message.success {
+            background: rgba(0, 184, 148, 0.1);
+            border: 1px solid rgba(0, 184, 148, 0.2);
+            color: var(--success);
+        }
+
+        #message.error {
+            background: rgba(232, 67, 147, 0.1);
+            border: 1px solid rgba(232, 67, 147, 0.2);
+            color: var(--error);
+        }
+
+        .audio-list {
+            margin-top: 20px;
+        }
+
+        .audio-group {
+            background: #F8F9FA;
+            border-radius: 12px;
+            padding: 18px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border-light);
+            transition: all 0.3s ease;
+            animation: slideIn 0.5s ease;
+        }
+
+        .audio-group:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-hover);
+            border-color: var(--primary-light);
+        }
+
+        .audio-group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px dashed var(--border-light);
+        }
+
+        .audio-group-title {
+            font-weight: 600;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .audio-group-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .audio-item {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 8px;
+            border-left: 3px solid var(--primary-light);
+            transition: all 0.3s ease;
+        }
+
+        /* 新增：播放中的音频片段样式 */
+        .audio-item.playing {
+            background-color: var(--playing-bg);
+            border-left-color: var(--playing-border);
+        }
+
+        .audio-item.error {
+            border-left-color: var(--error);
+            background: rgba(232, 67, 147, 0.05);
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .audio-text {
+            margin-bottom: 14px;
+            padding: 10px 12px;
+            background: rgba(108, 92, 231, 0.05);
+            border-left: 3px solid var(--primary);
+            border-radius: 0 6px 6px 0;
+            font-weight: 500;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            display: flex;
+            align-items: flex-start;
+            min-height: 40px;
+            transition: all 0.3s ease;
+        }
+
+        /* 新增：播放中的音频文本样式 */
+        .audio-item.playing .audio-text {
+            background-color: var(--playing-bg);
+            border-left-color: var(--playing-border);
+        }
+
+        .audio-text-editable {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            font-family: inherit;
+            font-size: inherit;
+            color: inherit;
+            padding: 0;
+            margin: 0;
+            resize: none;
+            line-height: 1.4;
+            overflow: hidden;
+            min-height: 20px;
+            height: auto;
+            width: 100%;
+        }
+
+        .audio-text-editable:focus {
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 4px;
+            padding: 2px 4px;
+        }
+
+        .audio-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .audio-label-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .play-status {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background-color: var(--text-light);
+            transition: all 0.3s ease;
+        }
+
+        .play-status.played {
+            background-color: var(--success);
+        }
+
+        .audio-label {
+            background: var(--primary);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.8rem;
+            box-shadow: 0 2px 8px rgba(108, 92, 231, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .audio-label i {
+            font-size: 0.7rem;
+        }
+
+        .audio-controls-buttons {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        /* 新增：停顿控制容器样式 */
+        .pause-controls {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-right: 5px;
+        }
+        
+        .pause-duration-input {
+            width: 70px;
+            padding: 5px 8px;
+            border-radius: 6px;
+            border: 1px solid var(--border-light);
+            font-size: 0.8rem;
+            text-align: center;
+            background: white;
+            color: var(--text-primary);
+        }
+        
+        .pause-duration-input:focus {
+            outline: none;
+            border-color: var(--primary-light);
+            box-shadow: 0 0 0 2px rgba(108, 92, 231, 0.1);
+        }
+
+        audio {
+            width: 100%;
+            border-radius: 10px;
+            outline: none;
+            height: 40px;
+        }
+
+        audio::-webkit-media-controls-panel {
+            background: #F1F3F4;
+            border-radius: 10px;
+        }
+
+        .error-message {
+            color: var(--error);
+            font-weight: 500;
+            padding: 10px;
+            background: rgba(232, 67, 147, 0.05);
+            border-radius: 6px;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            font-size: 0.9rem;
+        }
+
+        .error-message i {
+            margin-right: 6px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 15px auto;
+                padding: 20px;
+                border-radius: 15px;
+            }
+            
+            h1 {
+                font-size: 1.6rem;
+            }
+            
+            .controls-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .btn-container {
+                flex-direction: column;
+            }
+            
+            button {
+                width: 100%;
+                padding: 14px;
+            }
+
+            .audio-controls {
+                flex-direction: column;
+                gap: 10px;
+                align-items: flex-start;
+            }
+
+            .audio-controls-buttons {
+                width: 100%;
+                justify-content: flex-end;
+                flex-wrap: wrap;
+            }
+            
+            .pause-controls {
+                order: 1;
+                margin-right: 0;
+                width: 100%;
+                justify-content: flex-end;
+                margin-bottom: 5px;
+            }
+
+            .audio-group-header {
+                flex-direction: column;
+                gap: 10px;
+                align-items: flex-start;
+            }
+
+            .audio-group-controls {
+                width: 100%;
+                justify-content: flex-end;
+            }
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+            
+            .container {
+                padding: 15px;
+            }
+            
+            h1 {
+                font-size: 1.4rem;
+            }
+            
+            .info {
+                font-size: 0.9rem;
+            }
+            
+            .audio-controls-buttons {
+                flex-direction: column;
+                width: 100%;
+            }
+            
+            .pause-controls {
+                width: 100%;
+                justify-content: flex-start;
+            }
+        }
+
+        .pulse-animation {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(108, 92, 231, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(108, 92, 231, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(108, 92, 231, 0); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>语音合成</h1>
+        
+        <p class="info">输入文本或上传Excel文件，每行文本可按句号、问号分割成独立的音频片段，打包导出时会自动合并为完整音频</p>
+        
+        <div class="controls-grid">
+            <div class="input-group">
+                
+                <label for="voiceSelect"><i class="fas fa-user"></i> 音色选择<span style="color: red; font-weight: bold;">&nbsp;[请勿选错]</span></label>
+                <select id="voiceSelect">
+                    <option value="" selected disabled>请选择...</option>
+                    <option value="LAX音色-阿里">LAX音色-阿里</option>
+                    <option value="LS音色-阿里">LS音色-阿里</option>
+                    <option value="YD音色-MinMax">YD音色-MinMax</option>
+                    <option value="YD音色1-MinMax">YD音色1-MinMax</option>
+                    <option value="YD音色2-MinMax">YD音色2-MinMax</option>
+                    <option value="YY音色-MinMax">YY音色-MinMax</option>
+                    <option value="XL音色-MinMax">XL音色-MinMax</option>
+                    <option value="TT音色-MinMax">TT音色-MinMax</option>
+                    <option value="MD音色-MinMax">MD音色-MinMax</option>
+                    <option value="LS音色-MinMax">LS音色-MinMax</option>
+                    <option value="WW音色-MinMax">WW音色-MinMax</option>
+                    <option value="LAX音色-MinMax">LAX音色-MinMax</option>
+                    <option value="YD音色1">YD音色1</option>
+                    <option value="YD音色2">YD音色2</option>
+                    <option value="YY音色">YY音色</option>
+                    <option value="XL音色">XL音色</option>
+                    <option value="TT音色">TT音色</option>
+                    <option value="MD音色">MD音色</option>
+                    <option value="LS音色">LS音色</option>
+                    <option value="LAX音色">LAX音色</option>
+                    <option value="清甜桃桃">清甜桃桃</option>
+                    <option value="软萌团子">软萌团子</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <label for="speedSelect"><i class="fas fa-tachometer-alt"></i> 语速调节</label>
+                <select id="speedSelect">
+                    <option value="0.5">0.5 (很慢)</option>
+                    <option value="0.6">0.6</option>
+                    <option value="0.7">0.7</option>
+                    <option value="0.8">0.8</option>
+                    <option value="0.9">0.9</option>
+                    <option value="1.0" selected>1.0 (正常)</option>
+                    <option value="1.1">1.1</option>
+                    <option value="1.2">1.2</option>
+                    <option value="1.3">1.3</option>
+                    <option value="1.4">1.4</option>
+                    <option value="1.5">1.5 (很快)</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <label for="volumeSelect"><i class="fas fa-volume-up"></i> 音量控制</label>
+                <select id="volumeSelect">
+                    <option value="0.5">0.5 (较小)</option>
+                    <option value="0.6">0.6</option>
+                    <option value="0.7">0.7</option>
+                    <option value="0.8">0.8</option>
+                    <option value="0.9">0.9</option>
+                    <option value="1.0" selected>1.0 (正常)</option>
+                    <option value="1.1">1.1</option>
+                    <option value="1.2">1.2</option>
+                    <option value="1.3">1.3</option>
+                    <option value="1.4">1.4</option>
+                    <option value="1.5">1.5 (较大)</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <label for="pitchSelect"><i class="fas fa-sliders-h"></i> 音调控制</label>
+                <select id="pitchSelect">
+                    <option value="0.1">0.1 (较低)</option>
+                    <option value="0.2">0.2</option>
+                    <option value="0.3">0.3</option>
+                    <option value="0.4">0.4</option>
+                    <option value="0.5">0.5</option>
+                    <option value="0.6">0.6</option>
+                    <option value="0.7">0.7</option>
+                    <option value="0.8">0.8</option>
+                    <option value="0.9">0.9</option>
+                    <option value="1.0" selected>1.0 (正常)</option>
+                    <option value="1.1">1.1</option>
+                    <option value="1.2">1.2</option>
+                    <option value="1.3">1.3</option>
+                    <option value="1.4">1.4</option>
+                    <option value="1.5">1.5</option>
+                    <option value="1.6">1.6</option>
+                    <option value="1.7">1.7</option>
+                    <option value="1.8">1.8</option>
+                    <option value="1.9">1.9</option>
+                    <option value="2.0">2.0 (较高)</option>
+                </select>
+            </div>
+
+            <!-- 新增是否分割文本片段选项 -->
+            <div class="input-group">
+                <label for="splitOption"><i class="fas fa-cut"></i> 文本分割</label>
+                <select id="splitOption">
+                    <option value="yes">是（将按句号/问号分片）</option>
+                    <option value="no" selected>否（将整段合成）</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- 标签页容器 -->
+        <div class="tabs-container">
+            <div class="tabs">
+                <div class="tab active" data-tab="excel-tab">
+                    <i class="fas fa-file-excel"></i> Excel文件批量合成
+                </div>
+                <div class="tab" data-tab="text-tab">
+                    <i class="fas fa-keyboard"></i> 输入文本逐行合成
+                </div>
+            </div>
+            
+            <!-- 文本输入标签页 -->
+            <div id="text-tab" class="tab-content">
+                <div class="input-group">
+                    <label for="textInput"><i class="fas fa-edit"></i> 输入文本</label>
+                    <textarea id="textInput" placeholder="请输入文本，一行一个文本，每个文本可按句号、问号分割成片段...&#10;例如：&#10;这是第一行文本。&#10;这是第二行文本。"></textarea>
+                </div>
+            </div>
+            
+            <!-- Excel文件上传标签页 -->
+            <div id="excel-tab" class="tab-content active">
+                <div class="input-group">
+                    <label for="fileInput"><i class="fas fa-file-upload"></i> 上传Excel文件</label>
+                    <div class="info" style="text-align: left; margin-left: 0px; margin-top: 8px;">
+                        <small>请上传包含"语料名称"、"文字内容"列的Excel文件，支持xlsx格式</small>
+                    </div>
+                    <div class="file-input-container">
+                        <label for="fileInput" class="file-input-label">
+                            <i class="fas fa-file-excel"></i> 点此选择xlsx文件（单选）
+                        </label>
+                        <div class="file-name" id="fileName">未选择文件</div>
+                        <input type="file" id="fileInput" accept=".xlsx,.xls">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="btn-container">
+            <button id="synthesizeBtn" class="pulse-animation">
+                <i class="fas fa-bolt"></i> 开始逐个合成音频
+            </button>
+            <button id="downloadBtn" class="btn-secondary" disabled>
+                <i class="fas fa-download"></i> 打包导出所有音频
+            </button>
+        </div>
+        
+        <div class="progress-container">
+            <div class="progress-header">
+                <div class="status" id="status">准备生成音频...</div>
+                <div class="progress-percent" id="progressPercent">0%</div>
+            </div>
+            <div class="progress-bar">
+                <div class="progress" id="progressBar"></div>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            生成音频中，可先对已生成的音频执行操作...
+        </div>
+        
+        <div id="message"></div>
+        
+        <div class="audio-list" id="audioList"></div>
+    </div>
+
+    <script>
+        // 存储生成的音频文件
+        let audioGroups = []; // 每个组包含完整的文本和其片段
+        
+        // 存储合并后的完整音频
+        let mergedAudios = {};
+        
+        let currentMode = 'excel'; // 'text' 或 'excel'
+        
+        // 当前播放的音频片段信息
+        let currentlyPlayingAudio = {
+            groupIndex: -1,
+            segmentIndex: -1,
+            element: null
+        };
+        
+        // 按句号、问号分割文本
+        function splitTextIntoSentences(text) {
+            // 使用正则表达式分割文本，保留分割符号
+            const sentences = text.split(/([。？])/);
+            const result = [];
+            
+            let currentSentence = '';
+            for (let i = 0; i < sentences.length; i++) {
+                if (sentences[i].trim() === '') continue;
+                
+                currentSentence += sentences[i];
+                
+                // 如果当前字符是句号或问号，则完成一个句子
+                if (sentences[i] === '。' || sentences[i] === '？') {
+                    result.push(currentSentence.trim());
+                    currentSentence = '';
+                }
+            }
+            
+            // 添加最后一个不完整的句子（如果有）
+            if (currentSentence.trim() !== '') {
+                result.push(currentSentence.trim());
+            }
+            
+            return result.filter(sentence => sentence.length > 0);
+        }
+        
+        // 自适应文本区域高度函数
+        function autoResizeTextArea(textArea) {
+            textArea.style.height = 'auto';
+            const newHeight = Math.min(textArea.scrollHeight, 300);
+            textArea.style.height = newHeight + 'px';
+            textArea.style.overflowY = textArea.scrollHeight > 300 ? 'auto' : 'hidden';
+        }
+        
+        // 确保文本区域在添加到DOM后正确调整高度
+        function ensureTextAreaHeight(textArea) {
+            autoResizeTextArea(textArea);
+            
+            setTimeout(() => {
+                autoResizeTextArea(textArea);
+            }, 0);
+            
+            requestAnimationFrame(() => {
+                autoResizeTextArea(textArea);
+            });
+        }
+        
+        // 标记音频片段为播放状态
+        function markAudioAsPlaying(groupIndex, segmentIndex, audioElement) {
+            // 清除之前播放的音频片段的橙色背景
+            if (currentlyPlayingAudio.element) {
+                currentlyPlayingAudio.element.classList.remove('playing');
+            }
+            
+            // 设置当前播放的音频片段
+            currentlyPlayingAudio.groupIndex = groupIndex;
+            currentlyPlayingAudio.segmentIndex = segmentIndex;
+            currentlyPlayingAudio.element = audioElement;
+            
+            // 添加橙色背景
+            audioElement.classList.add('playing');
+        }
+        
+        // 插入停顿标记到文本区域
+        function insertPauseMark(textArea, durationInput) {            
+            // 获取停顿时长，保留1位小数
+            let duration = parseFloat(durationInput.value);
+            if (isNaN(duration) || duration < 0) {
+                duration = 1.0;
+            }
+            
+            // 限制小数点后1位
+            duration = Math.round(duration * 10) / 10;
+            durationInput.value = duration.toFixed(1);
+            
+            // 获取ssml标记
+            const durationMs = Math.round(duration * 1000);
+            const voice = document.getElementById('voiceSelect').value;
+            let pauseMark = ''; // 默认
+            // 根据音色确定停顿标记
+            if (voice.includes('MinMax')) {
+                pauseMark = `<#${duration}#>`;
+            } else if (voice.includes('阿里')) {
+                pauseMark = `<break time="${durationMs}ms"/>`;
+            } else {
+                return;
+            }
+            
+            // 构建停顿文本
+            // const pauseText = `[${pauseMark}${duration.toFixed(1)}]`;
+            const pauseText = pauseMark;
+            
+            // 获取当前光标位置
+            const startPos = textArea.selectionStart;
+            const endPos = textArea.selectionEnd;
+            
+            // 插入停顿文本
+            const textBefore = textArea.value.substring(0, startPos);
+            const textAfter = textArea.value.substring(endPos);
+            textArea.value = textBefore + pauseMark + textAfter;
+            
+            // 重新调整文本区域高度
+            autoResizeTextArea(textArea);
+            
+            // 将光标定位到插入的文本之后
+            const newCursorPos = startPos + pauseText.length;
+            textArea.focus();
+            textArea.setSelectionRange(newCursorPos, newCursorPos);
+            
+            return pauseText;
+        }
+        
+        // 标签页切换功能
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                this.classList.add('active');
+                const tabId = this.getAttribute('data-tab');
+                document.getElementById(tabId).classList.add('active');
+                
+                currentMode = tabId === 'text-tab' ? 'text' : 'excel';
+            });
+        });
+        
+        // 文件输入处理
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const fileName = document.getElementById('fileName');
+            if (this.files.length > 0) {
+                fileName.textContent = this.files[0].name;
+            } else {
+                fileName.textContent = '未选择文件';
+            }
+        });
+        
+        // 带重试机制的fetch函数
+        async function fetchWithRetry(url, options, maxRetries = 3, retryDelay = 1000) {
+            let lastError;
+            
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || `请求失败: ${response.status}`);
+                    }
+                    
+                    return response;
+                } catch (error) {
+                    lastError = error;
+                    
+                    if (i < maxRetries - 1) {
+                        console.warn(`请求失败，${retryDelay}ms后重试 (${i+1}/${maxRetries}):`, error.message);
+                        await new Promise(resolve => setTimeout(resolve, retryDelay));
+                        retryDelay *= 2;
+                    }
+                }
+            }
+            
+            throw lastError;
+        }
+        
+        // 生成单个音频片段
+        async function generateSingleAudio(text, voice, speed, volume, pitch, index) {
+            const response = await fetchWithRetry('/synthesize', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    text: text, 
+                    spk_name: voice, 
+                    speed: speed, 
+                    volume: volume,
+                    pitch: pitch
+                })
+            }, 3, 1000);
+            
+            return await response.blob();
+        }
+        
+        // 重新生成单个音频片段
+        async function regenerateAudio(groupIndex, segmentIndex, textArea, audioElement, regenerateBtn, playStatus) {
+            regenerateBtn.disabled = true;
+            regenerateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
+            
+            try {
+                const voice = document.getElementById('voiceSelect').value;
+                const speed = document.getElementById('speedSelect').value;
+                const volume = document.getElementById('volumeSelect').value;
+                const pitch = document.getElementById('pitchSelect').value;
+                
+                const newText = textArea.value;
+                
+                const blob = await generateSingleAudio(newText, voice, speed, volume, pitch, segmentIndex);
+                const audioUrl = URL.createObjectURL(blob);
+                
+                audioElement.src = audioUrl;
+                playStatus.classList.remove('played');
+                
+                // 更新audioGroups中的数据
+                if (audioGroups[groupIndex] && audioGroups[groupIndex].segments[segmentIndex]) {
+                    if (audioGroups[groupIndex].segments[segmentIndex].url) {
+                        URL.revokeObjectURL(audioGroups[groupIndex].segments[segmentIndex].url);
+                    }
+                    
+                    audioGroups[groupIndex].segments[segmentIndex] = {
+                        text: newText,
+                        blob: blob,
+                        url: audioUrl
+                    };
+                    
+                    // 清除合并的音频，因为片段已更新
+                    if (mergedAudios[groupIndex]) {
+                        URL.revokeObjectURL(mergedAudios[groupIndex]);
+                        delete mergedAudios[groupIndex];
+                    }
+                }
+                
+                regenerateBtn.disabled = false;
+                regenerateBtn.innerHTML = '<i class="fas fa-redo"></i> 重新生成';
+                
+                showMessage('音频片段重新生成成功！', 'success');
+                
+            } catch (error) {
+                regenerateBtn.disabled = false;
+                regenerateBtn.innerHTML = '<i class="fas fa-redo"></i> 重新生成';
+                showMessage(`重新生成音频失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 删除单个音频片段
+        function deleteAudioSegment(groupIndex, segmentIndex) {
+            if (!audioGroups[groupIndex] || !audioGroups[groupIndex].segments[segmentIndex]) {
+                return;
+            }
+            
+            // 如果删除的是当前正在播放的片段，清除播放标记
+            if (currentlyPlayingAudio.groupIndex === groupIndex && 
+                currentlyPlayingAudio.segmentIndex === segmentIndex) {
+                if (currentlyPlayingAudio.element) {
+                    currentlyPlayingAudio.element.classList.remove('playing');
+                }
+                currentlyPlayingAudio.groupIndex = -1;
+                currentlyPlayingAudio.segmentIndex = -1;
+                currentlyPlayingAudio.element = null;
+            }
+            
+            // 释放音频URL
+            if (audioGroups[groupIndex].segments[segmentIndex].url) {
+                URL.revokeObjectURL(audioGroups[groupIndex].segments[segmentIndex].url);
+            }
+            
+            // 从数组中删除片段
+            audioGroups[groupIndex].segments.splice(segmentIndex, 1);
+            
+            // 清除合并的音频，因为片段已改变
+            if (mergedAudios[groupIndex]) {
+                URL.revokeObjectURL(mergedAudios[groupIndex]);
+                delete mergedAudios[groupIndex];
+            }
+            
+            // 删除UI元素
+            const audioGroup = document.getElementById(`audio-group-${groupIndex}`);
+            if (audioGroup) {
+                const audioItems = audioGroup.querySelectorAll('.audio-item');
+                if (audioItems[segmentIndex]) {
+                    audioItems[segmentIndex].remove();
+                }
+                
+                // 重新编号剩余的片段
+                const remainingAudioItems = audioGroup.querySelectorAll('.audio-item');
+                if (remainingAudioItems.length === 0) {
+                    // 如果没有片段了，删除整个组
+                    deleteAudioGroup(groupIndex);
+                } else {
+                    // 更新剩余片段的标签
+                    remainingAudioItems.forEach((item, index) => {
+                        const label = item.querySelector('.audio-label');
+                        if (label) {
+                            label.innerHTML = `<i class="fas fa-music"></i> 片段 ${index + 1}`;
+                        }
+                    });
+                }
+            }
+            
+            showMessage('音频片段已删除', 'success');
+            
+            // 检查是否还有音频组，如果没有则禁用打包下载按钮
+            if (audioGroups.length === 0) {
+                document.getElementById('downloadBtn').disabled = true;
+            }
+        }
+        
+        // 删除整个音频组
+        function deleteAudioGroup(groupIndex) {
+            if (!audioGroups[groupIndex]) {
+                return;
+            }
+            
+            // 如果删除的是包含当前播放片段的组，清除播放标记
+            if (currentlyPlayingAudio.groupIndex === groupIndex) {
+                if (currentlyPlayingAudio.element) {
+                    currentlyPlayingAudio.element.classList.remove('playing');
+                }
+                currentlyPlayingAudio.groupIndex = -1;
+                currentlyPlayingAudio.segmentIndex = -1;
+                currentlyPlayingAudio.element = null;
+            }
+            
+            // 释放所有音频片段的URL
+            audioGroups[groupIndex].segments.forEach(segment => {
+                if (segment.url) {
+                    URL.revokeObjectURL(segment.url);
+                }
+            });
+            
+            // 释放合并音频的URL（如果有）
+            if (mergedAudios[groupIndex]) {
+                URL.revokeObjectURL(mergedAudios[groupIndex]);
+                delete mergedAudios[groupIndex];
+            }
+            
+            // 从数组中删除组
+            audioGroups.splice(groupIndex, 1);
+            
+            // 删除UI元素
+            const audioGroup = document.getElementById(`audio-group-${groupIndex}`);
+            if (audioGroup) {
+                audioGroup.remove();
+            }
+            
+            // 更新剩余组的索引
+            const remainingGroups = document.querySelectorAll('.audio-group');
+            remainingGroups.forEach((group, index) => {
+                group.id = `audio-group-${index}`;
+                
+                // 更新组内的删除按钮事件
+                const deleteGroupBtn = group.querySelector('.delete-group-btn');
+                if (deleteGroupBtn) {
+                    // 移除旧的事件监听器并添加新的
+                    deleteGroupBtn.replaceWith(deleteGroupBtn.cloneNode(true));
+                    const newDeleteBtn = group.querySelector('.delete-group-btn');
+                    newDeleteBtn.addEventListener('click', () => {
+                        if (confirm('确定要删除语料的所有音频片段吗？')) {
+                            deleteAudioGroup(index);
+                        }
+                    });
+                }
+                
+                // 更新组内的片段删除按钮事件
+                const deleteSegmentBtns = group.querySelectorAll('.delete-segment-btn');
+                deleteSegmentBtns.forEach((btn, segmentIndex) => {
+                    btn.replaceWith(btn.cloneNode(true));
+                    const newBtn = group.querySelectorAll('.delete-segment-btn')[segmentIndex];
+                    newBtn.addEventListener('click', () => {
+                        if (confirm('确定要删除这个音频片段吗？')) {
+                            deleteAudioSegment(index, segmentIndex);
+                        }
+                    });
+                });
+            });
+            
+            showMessage('音频组已删除', 'success');
+            
+            // 检查是否还有音频组，如果没有则禁用打包下载按钮
+            if (audioGroups.length === 0) {
+                document.getElementById('downloadBtn').disabled = true;
+            }
+        }
+        
+        // 合并多个音频片段为一个完整音频
+        async function mergeAudioSegments(audioSegments) {
+            return new Promise((resolve) => {
+                // 创建一个临时的音频上下文来处理音频
+                // const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const audioContext = new AudioContext({ sampleRate: 8000 });
+                
+                // 用于存储解码后的音频缓冲区
+                const audioBuffers = [];
+                let buffersLoaded = 0;
+                
+                // 解码所有音频片段
+                audioSegments.forEach((segment, index) => {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        audioContext.decodeAudioData(e.target.result, (buffer) => {
+                            audioBuffers[index] = buffer;
+                            buffersLoaded++;
+                            
+                            // 当所有缓冲区都加载完毕时，开始合并
+                            if (buffersLoaded === audioSegments.length) {
+                                mergeBuffers(audioContext, audioBuffers, resolve);
+                            }
+                        }, (error) => {
+                            console.error('解码音频失败:', error);
+                            buffersLoaded++;
+                            
+                            // 即使有失败，也继续处理
+                            if (buffersLoaded === audioSegments.length) {
+                                mergeBuffers(audioContext, audioBuffers, resolve);
+                            }
+                        });
+                    };
+                    reader.readAsArrayBuffer(segment.blob);
+                });
+            });
+        }
+        
+        // 合并音频缓冲区
+        function mergeBuffers(audioContext, audioBuffers, resolve) {
+            // 计算总长度
+            let totalLength = 0;
+            audioBuffers.forEach(buffer => {
+                if (buffer) totalLength += buffer.length;
+            });
+            
+            // 创建新的音频缓冲区
+            const mergedBuffer = audioContext.createBuffer(
+                audioBuffers[0] ? audioBuffers[0].numberOfChannels : 1,
+                totalLength,
+                audioBuffers[0] ? audioBuffers[0].sampleRate : 44100
+            );
+            
+            // 合并所有缓冲区
+            let offset = 0;
+            for (let i = 0; i < audioBuffers.length; i++) {
+                if (audioBuffers[i]) {
+                    for (let channel = 0; channel < mergedBuffer.numberOfChannels; channel++) {
+                        const channelData = mergedBuffer.getChannelData(channel);
+                        const sourceData = audioBuffers[i].getChannelData(
+                            channel < audioBuffers[i].numberOfChannels ? channel : 0
+                        );
+                        channelData.set(sourceData, offset);
+                    }
+                    offset += audioBuffers[i].length;
+                }
+            }
+            
+            // 将缓冲区转换为WAV Blob
+            const wavBlob = bufferToWave(mergedBuffer, mergedBuffer.length);
+            resolve(wavBlob);
+        }
+        
+        // 将AudioBuffer转换为WAV格式的Blob
+        function bufferToWave(abuffer, len) {
+            const numOfChan = abuffer.numberOfChannels;
+            const length = len * numOfChan * 2;
+            const buffer = new ArrayBuffer(44 + length);
+            const view = new DataView(buffer);
+            const channels = [];
+            let i, sample;
+            let offset = 0;
+            let pos = 0;
+            
+            // 写入WAV头部
+            setUint32(0x46464952); // "RIFF"
+            setUint32(length + 36); // 文件长度
+            setUint32(0x45564157); // "WAVE"
+            setUint32(0x20746d66); // "fmt "
+            setUint32(16); // 子块大小
+            setUint16(1); // 格式类型 (PCM)
+            setUint16(numOfChan); // 声道数
+            setUint32(abuffer.sampleRate); // 采样率
+            setUint32(abuffer.sampleRate * 2 * numOfChan); // 字节率
+            setUint16(numOfChan * 2); // 块对齐
+            setUint16(16); // 位深度
+            setUint32(0x61746164); // "data"
+            setUint32(length); // 数据长度
+            
+            // 写入PCM数据
+            for (i = 0; i < abuffer.numberOfChannels; i++) {
+                channels.push(abuffer.getChannelData(i));
+            }
+            
+            while (pos < len) {
+                for (i = 0; i < numOfChan; i++) {
+                    sample = Math.max(-1, Math.min(1, channels[i][pos]));
+                    sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
+                    view.setInt16(offset, sample, true);
+                    offset += 2;
+                }
+                pos++;
+            }
+            
+            function setUint16(data) {
+                view.setUint16(offset, data, true);
+                offset += 2;
+            }
+            
+            function setUint32(data) {
+                view.setUint32(offset, data, true);
+                offset += 4;
+            }
+            
+            return new Blob([buffer], { type: "audio/wav" });
+        }
+        
+        // 显示消息
+        function showMessage(message, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = message;
+            messageDiv.className = type;
+            
+            setTimeout(() => {
+                messageDiv.textContent = '';
+                messageDiv.className = '';
+            }, 3000);
+        }
+        
+        // 生成音频按钮点击事件
+        document.getElementById('synthesizeBtn').addEventListener('click', async function() {
+            const voice = document.getElementById('voiceSelect').value;
+            if (voice == '') {
+                alert('请选择音色');
+                showMessage('请选择音色', 'error');
+                return;
+            }
+
+            const messageDiv = document.getElementById('message');
+            const loadingDiv = document.getElementById('loading');
+            const audioList = document.getElementById('audioList');
+            const progressBar = document.getElementById('progressBar');
+            const statusDiv = document.getElementById('status');
+            const progressPercent = document.getElementById('progressPercent');
+            const downloadBtn = document.getElementById('downloadBtn');
+            
+            messageDiv.innerHTML = '';
+            messageDiv.className = '';
+            audioList.innerHTML = '';
+            audioGroups = [];
+            mergedAudios = {};
+            
+            // 重置当前播放的音频
+            if (currentlyPlayingAudio.element) {
+                currentlyPlayingAudio.element.classList.remove('playing');
+            }
+            currentlyPlayingAudio.groupIndex = -1;
+            currentlyPlayingAudio.segmentIndex = -1;
+            currentlyPlayingAudio.element = null;
+            
+            let data = [];
+            
+            if (currentMode === 'text') {
+                const text = document.getElementById('textInput').value.trim();
+                
+                if (!text) {
+                    messageDiv.textContent = '请输入文本';
+                    messageDiv.className = 'error';
+                    return;
+                }
+                
+                const lines = text.split('\n').filter(line => line.trim() !== '');
+                
+                if (lines.length === 0) {
+                    messageDiv.textContent = '没有有效的文本行';
+                    messageDiv.className = 'error';
+                    return;
+                }
+                
+                data = lines.map((line, index) => ({
+                    index: index + 1,
+                    text: line
+                }));
+            } else if (currentMode === 'excel') {
+                const fileInput = document.getElementById('fileInput');
+                
+                if (fileInput.files.length === 0) {
+                    messageDiv.textContent = '请选择Excel文件';
+                    messageDiv.className = 'error';
+                    return;
+                }
+                
+                try {
+                    data = await parseExcelFile(fileInput.files[0]);
+                } catch (error) {
+                    messageDiv.textContent = error.message;
+                    messageDiv.className = 'error';
+                    return;
+                }
+            }
+            
+            if (data.length === 0) {
+                messageDiv.textContent = '没有有效的文本数据';
+                messageDiv.className = 'error';
+                return;
+            }
+            
+            loadingDiv.style.display = 'block';
+            statusDiv.textContent = `准备生成音频...`;
+            progressBar.style.width = '0%';
+            progressPercent.textContent = '0%';
+            
+            this.disabled = true;
+            downloadBtn.disabled = true;
+            this.classList.remove('pulse-animation');
+            
+            try {
+                const voice = document.getElementById('voiceSelect').value;
+                const speed = document.getElementById('speedSelect').value;
+                const volume = document.getElementById('volumeSelect').value;
+                const pitch = document.getElementById('pitchSelect').value;
+                const shouldSplit = document.getElementById('splitOption').value === 'yes';
+                
+                // 计算总片段数用于进度显示
+                let totalSegments = 0;
+                data.forEach(item => {
+                    const segments = shouldSplit ? splitTextIntoSentences(item.text) : [item.text];
+                    totalSegments += segments.length;
+                });
+                
+                let processedSegments = 0;
+                
+                // 为每个文本行生成音频
+                for (let groupIndex = 0; groupIndex < data.length; groupIndex++) {
+                    const item = data[groupIndex];
+                    const segments = shouldSplit ? splitTextIntoSentences(item.text) : [item.text];
+                    
+                    // 创建音频组
+                    const audioGroup = {
+                        index: item.index,
+                        text: item.text,
+                        segments: []
+                    };
+                    
+                    // 创建组UI
+                    const groupDiv = document.createElement('div');
+                    groupDiv.className = 'audio-group fade-in';
+                    groupDiv.id = `audio-group-${groupIndex}`;
+                    
+                    const groupHeader = document.createElement('div');
+                    groupHeader.className = 'audio-group-header';
+                    
+                    const groupTitle = document.createElement('div');
+                    groupTitle.className = 'audio-group-title';
+                    groupTitle.innerHTML = `<i class="fas fa-file-audio"></i> 语料名称：${item.index}`;
+                    
+                    const groupControls = document.createElement('div');
+                    groupControls.className = 'audio-group-controls';
+                    
+                    // 添加删除整个音频组按钮（在播放按钮左边）
+                    const deleteGroupBtn = document.createElement('button');
+                    deleteGroupBtn.className = 'btn-small btn-danger delete-group-btn';
+                    deleteGroupBtn.innerHTML = '<i class="fas fa-trash-alt"></i> 删除音频组';
+                    deleteGroupBtn.addEventListener('click', () => {
+                        if (confirm(`确定要删除语料"${item.index}"的所有音频片段吗？`)) {
+                            deleteAudioGroup(groupIndex);
+                        }
+                    });
+                    
+                    // 添加播放完整音频按钮
+                    const playGroupBtn = document.createElement('button');
+                    playGroupBtn.className = 'btn-small';
+                    playGroupBtn.innerHTML = '<i class="fas fa-play"></i> 播放完整音频';
+                    playGroupBtn.disabled = true;
+                    
+                    const downloadGroupBtn = document.createElement('button');
+                    downloadGroupBtn.className = 'btn-small btn-secondary';
+                    downloadGroupBtn.innerHTML = '<i class="fas fa-download"></i> 下载完整音频';
+                    downloadGroupBtn.disabled = true;
+                    
+                    groupControls.appendChild(deleteGroupBtn);
+                    groupControls.appendChild(playGroupBtn);
+                    groupControls.appendChild(downloadGroupBtn);
+                    groupHeader.appendChild(groupTitle);
+                    groupHeader.appendChild(groupControls);
+                    groupDiv.appendChild(groupHeader);
+                    
+                    // 为每个片段生成音频
+                    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+                        const segmentText = segments[segmentIndex];
+                        
+                        statusDiv.textContent = `正在生成第 ${processedSegments + 1} 个音频片段 (共 ${totalSegments} 个)...`;
+                        const percent = Math.round(((processedSegments) / totalSegments) * 100);
+                        progressBar.style.width = `${percent}%`;
+                        progressPercent.textContent = `${percent}%`;
+                        
+                        try {
+                            const blob = await generateSingleAudio(segmentText, voice, speed, volume, pitch, segmentIndex);
+                            const audioUrl = URL.createObjectURL(blob);
+                            
+                            // 存储音频片段信息
+                            audioGroup.segments.push({
+                                text: segmentText,
+                                blob: blob,
+                                url: audioUrl
+                            });
+                            
+                            // 创建音频片段UI
+                            const audioItem = document.createElement('div');
+                            audioItem.className = 'audio-item fade-in';
+                            audioItem.dataset.groupIndex = groupIndex;
+                            audioItem.dataset.segmentIndex = segmentIndex;
+                            
+                            const playStatus = document.createElement('div');
+                            playStatus.className = 'play-status';
+                            
+                            const labelContainer = document.createElement('div');
+                            labelContainer.className = 'audio-label-container';
+                            
+                            const labelDiv = document.createElement('div');
+                            labelDiv.className = 'audio-label';
+                            labelDiv.innerHTML = `<i class="fas fa-music"></i> 片段 ${segmentIndex + 1}`;
+                            
+                            labelContainer.appendChild(playStatus);
+                            labelContainer.appendChild(labelDiv);
+                            
+                            const textDiv = document.createElement('div');
+                            textDiv.className = 'audio-text';
+                            
+                            const textArea = document.createElement('textarea');
+                            textArea.className = 'audio-text-editable';
+                            textArea.style = 'resize: vertical;'
+                            textArea.value = segmentText;
+                            
+                            textDiv.appendChild(textArea);
+                            
+                            const controlsDiv = document.createElement('div');
+                            controlsDiv.className = 'audio-controls';
+                            
+                            const buttonsDiv = document.createElement('div');
+                            buttonsDiv.className = 'audio-controls-buttons';
+                            
+                            // 添加停顿控制容器（在删除按钮左侧）
+                            const pauseControls = document.createElement('div');
+                            pauseControls.className = 'pause-controls';
+                            
+                            // 添加停顿时长输入框
+                            const durationInput = document.createElement('input');
+                            durationInput.type = 'number';
+                            durationInput.className = 'pause-duration-input';
+                            durationInput.step = '0.1';
+                            durationInput.min = '0';
+                            durationInput.max = '10';
+                            durationInput.value = '1.0';
+                            durationInput.title = '停顿时长（秒）';
+                            
+                            // 添加插入停顿按钮
+                            const insertPauseBtn = document.createElement('button');
+                            insertPauseBtn.className = 'btn-small btn-pause';
+                            insertPauseBtn.innerHTML = '<i class="fas fa-pause-circle"></i> 插入停顿';
+                            insertPauseBtn.addEventListener('click', () => {
+                                const insertedText = insertPauseMark(textArea, durationInput);
+                                showMessage(`已插入停顿标记: ${insertedText}`, 'success');
+                            });
+                            
+                            pauseControls.appendChild(durationInput);
+                            pauseControls.appendChild(insertPauseBtn);
+                            
+                            // 添加删除单个音频片段按钮（在停顿控制容器右边）
+                            const deleteSegmentBtn = document.createElement('button');
+                            deleteSegmentBtn.className = 'btn-small btn-danger delete-segment-btn';
+                            deleteSegmentBtn.innerHTML = '<i class="fas fa-trash-alt"></i> 删除';
+                            deleteSegmentBtn.addEventListener('click', () => {
+                                if (confirm('确定要删除这个音频片段吗？')) {
+                                    deleteAudioSegment(groupIndex, segmentIndex);
+                                }
+                            });
+                            
+                            const regenerateBtn = document.createElement('button');
+                            regenerateBtn.className = 'btn-small';
+                            regenerateBtn.innerHTML = '<i class="fas fa-redo"></i> 重新生成';
+                            
+                            const audioPlayer = document.createElement('audio');
+                            audioPlayer.controls = true;
+                            audioPlayer.src = audioUrl;
+                            
+                            // 监听音频播放事件
+                            audioPlayer.addEventListener('play', function() {
+                                playStatus.classList.add('played');
+                                markAudioAsPlaying(groupIndex, segmentIndex, audioItem);
+                            });
+                            
+                            // 监听音频暂停事件
+                            audioPlayer.addEventListener('pause', function() {
+                                // 暂停时不移除橙色背景
+                            });
+                            
+                            // 监听音频结束事件
+                            audioPlayer.addEventListener('ended', function() {
+                                // 结束时不移除橙色背景
+                            });
+                            
+                            regenerateBtn.addEventListener('click', () => {
+                                regenerateAudio(groupIndex, segmentIndex, textArea, audioPlayer, regenerateBtn, playStatus);
+                            });
+                            
+                            buttonsDiv.appendChild(pauseControls);
+                            buttonsDiv.appendChild(deleteSegmentBtn);
+                            buttonsDiv.appendChild(regenerateBtn);
+                            
+                            controlsDiv.appendChild(labelContainer);
+                            controlsDiv.appendChild(buttonsDiv);
+                            
+                            audioItem.appendChild(controlsDiv);
+                            audioItem.appendChild(textDiv);
+                            audioItem.appendChild(audioPlayer);
+                            groupDiv.appendChild(audioItem);
+                            
+                            ensureTextAreaHeight(textArea);
+                            
+                            textArea.addEventListener('input', function() {
+                                autoResizeTextArea(this);
+                            });
+                            
+                        } catch (error) {
+                            const errorItem = document.createElement('div');
+                            errorItem.className = 'audio-item error fade-in';
+                            errorItem.dataset.groupIndex = groupIndex;
+                            errorItem.dataset.segmentIndex = segmentIndex;
+                            
+                            const playStatus = document.createElement('div');
+                            playStatus.className = 'play-status';
+                            
+                            const labelContainer = document.createElement('div');
+                            labelContainer.className = 'audio-label-container';
+                            
+                            const labelDiv = document.createElement('div');
+                            labelDiv.className = 'audio-label';
+                            labelDiv.innerHTML = `<i class="fas fa-music"></i> 片段 ${segmentIndex + 1}`;
+                            
+                            labelContainer.appendChild(playStatus);
+                            labelContainer.appendChild(labelDiv);
+                            
+                            const textDiv = document.createElement('div');
+                            textDiv.className = 'audio-text';
+                            
+                            const textArea = document.createElement('textarea');
+                            textArea.className = 'audio-text-editable';
+                            textArea.value = segments[segmentIndex];
+                            
+                            textDiv.appendChild(textArea);
+                            
+                            const controlsDiv = document.createElement('div');
+                            controlsDiv.className = 'audio-controls';
+                            
+                            const buttonsDiv = document.createElement('div');
+                            buttonsDiv.className = 'audio-controls-buttons';
+                            
+                            // 添加停顿控制容器（在删除按钮左侧）- 错误情况也要添加
+                            const pauseControls = document.createElement('div');
+                            pauseControls.className = 'pause-controls';
+                            
+                            // 添加停顿时长输入框
+                            const durationInput = document.createElement('input');
+                            durationInput.type = 'number';
+                            durationInput.className = 'pause-duration-input';
+                            durationInput.step = '0.1';
+                            durationInput.min = '0';
+                            durationInput.max = '10';
+                            durationInput.value = '1.0';
+                            durationInput.title = '停顿时长（秒）';
+                            
+                            // 添加插入停顿按钮
+                            const insertPauseBtn = document.createElement('button');
+                            insertPauseBtn.className = 'btn-small btn-pause';
+                            insertPauseBtn.innerHTML = '<i class="fas fa-pause-circle"></i> 插入停顿';
+                            insertPauseBtn.addEventListener('click', () => {
+                                const insertedText = insertPauseMark(textArea, durationInput);
+                                showMessage(`已插入停顿标记: ${insertedText}`, 'success');
+                            });
+                            
+                            pauseControls.appendChild(durationInput);
+                            pauseControls.appendChild(insertPauseBtn);
+                            
+                            // 添加删除单个音频片段按钮（在停顿控制容器右边）
+                            const deleteSegmentBtn = document.createElement('button');
+                            deleteSegmentBtn.className = 'btn-small btn-danger delete-segment-btn';
+                            deleteSegmentBtn.innerHTML = '<i class="fas fa-trash-alt"></i> 删除';
+                            deleteSegmentBtn.addEventListener('click', () => {
+                                if (confirm('确定要删除这个音频片段吗？')) {
+                                    deleteAudioSegment(groupIndex, segmentIndex);
+                                }
+                            });
+                            
+                            const regenerateBtn = document.createElement('button');
+                            regenerateBtn.className = 'btn-small';
+                            regenerateBtn.innerHTML = '<i class="fas fa-redo"></i> 重新生成';
+                            
+                            const errorMsg = document.createElement('div');
+                            errorMsg.className = 'error-message';
+                            errorMsg.innerHTML = `<i class="fas fa-exclamation-circle"></i> 生成失败: ${error.message}`;
+                            
+                            regenerateBtn.addEventListener('click', () => {
+                                errorMsg.remove();
+                                const audioPlayer = document.createElement('audio');
+                                audioPlayer.controls = true;
+                                errorItem.appendChild(audioPlayer);
+                                
+                                // 为重新生成的音频添加播放事件监听
+                                audioPlayer.addEventListener('play', function() {
+                                    playStatus.classList.add('played');
+                                    markAudioAsPlaying(groupIndex, segmentIndex, errorItem);
+                                });
+                                
+                                regenerateAudio(groupIndex, segmentIndex, textArea, audioPlayer, regenerateBtn, playStatus);
+                            });
+                            
+                            buttonsDiv.appendChild(pauseControls);
+                            buttonsDiv.appendChild(deleteSegmentBtn);
+                            buttonsDiv.appendChild(regenerateBtn);
+                            
+                            controlsDiv.appendChild(labelContainer);
+                            controlsDiv.appendChild(buttonsDiv);
+                            
+                            errorItem.appendChild(controlsDiv);
+                            errorItem.appendChild(textDiv);
+                            errorItem.appendChild(errorMsg);
+                            groupDiv.appendChild(errorItem);
+                            
+                            ensureTextAreaHeight(textArea);
+                            
+                            textArea.addEventListener('input', function() {
+                                autoResizeTextArea(this);
+                            });
+                            
+                            // 即使失败也添加到组中，但标记为失败
+                            audioGroup.segments.push({
+                                text: segments[segmentIndex],
+                                error: error.message
+                            });
+                        }
+                        
+                        processedSegments++;
+                    }
+                    
+                    audioGroups.push(audioGroup);
+                    audioList.appendChild(groupDiv);
+                    
+                    // 为组播放按钮添加事件
+                    playGroupBtn.addEventListener('click', async () => {
+                        await playMergedAudio(groupIndex, playGroupBtn);
+                    });
+                    
+                    // 为组下载按钮添加事件
+                    downloadGroupBtn.addEventListener('click', async () => {
+                        await downloadMergedAudio(groupIndex, downloadGroupBtn);
+                    });
+                    
+                    // 如果组内有成功生成的片段，启用按钮
+                    if (audioGroup.segments.some(seg => !seg.error)) {
+                        playGroupBtn.disabled = false;
+                        downloadGroupBtn.disabled = false;
+                    }
+                }
+                
+                progressBar.style.width = '100%';
+                progressPercent.textContent = '100%';
+                statusDiv.textContent = `音频生成完成! 共生成 ${totalSegments} 个音频片段`;
+                
+                messageDiv.innerHTML = '<i class="fas fa-check-circle"></i> 所有音频生成完成！';
+                messageDiv.className = 'success';
+                
+                if (audioGroups.length > 0) {
+                    downloadBtn.disabled = false;
+                }
+                
+            } catch (error) {
+                messageDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> 错误: ${error.message}`;
+                messageDiv.className = 'error';
+            } finally {
+                loadingDiv.style.display = 'none';
+                this.disabled = false;
+                setTimeout(() => {
+                    if (!this.disabled) {
+                        this.classList.add('pulse-animation');
+                    }
+                }, 1000);
+            }
+        });
+        
+        // 播放合并后的完整音频
+        async function playMergedAudio(groupIndex, button) {
+            if (!audioGroups[groupIndex]) {
+                showMessage('音频组不存在', 'error');
+                return;
+            }
+            
+            const validSegments = audioGroups[groupIndex].segments.filter(seg => !seg.error);
+            
+            if (validSegments.length === 0) {
+                showMessage('没有可用的音频片段进行播放', 'error');
+                return;
+            }
+            
+            // 如果正在播放，则暂停
+            if (button.isPlaying) {
+                if (button.currentAudio) {
+                    button.currentAudio.pause();
+                    button.currentAudio = null;
+                }
+                
+                // 清除所有播放状态
+                document.querySelectorAll(`#audio-group-${groupIndex} .play-status`).forEach(status => {
+                    status.classList.remove('playing');
+                });
+                
+                button.innerHTML = '<i class="fas fa-play"></i> 播放完整音频';
+                button.isPlaying = false;
+                return;
+            }
+            
+            button.isPlaying = true;
+            button.innerHTML = '<i class="fas fa-pause"></i> 暂停播放音频';
+            
+            // 依次播放每个片段
+            for (let i = 0; i < validSegments.length; i++) {
+                // 如果用户点击了暂停，则停止播放
+                if (!button.isPlaying) {
+                    break;
+                }
+                
+                // 获取当前音频片段的DOM元素
+                const audioItem = document.querySelector(`#audio-group-${groupIndex} .audio-item:nth-child(${i+2})`); // +2因为第一个是组标题
+                
+                // 标记当前片段为播放状态
+                if (audioItem) {
+                    markAudioAsPlaying(groupIndex, i, audioItem);
+                }
+                
+                // 更新当前播放的片段状态
+                const playStatusElements = document.querySelectorAll(`#audio-group-${groupIndex} .play-status`);
+                if (playStatusElements[i]) {
+                    // 清除之前的播放状态
+                    document.querySelectorAll(`#audio-group-${groupIndex} .play-status`).forEach(status => {
+                        status.classList.remove('playing');
+                    });
+                    
+                    // 设置当前播放状态
+                    playStatusElements[i].classList.add('playing');
+                    
+                    // 标记当前片段为已读
+                    playStatusElements[i].classList.add('played');
+                }
+                
+                // 播放当前片段
+                try {
+                    await playAudioSegment(validSegments[i].url, button);
+                } catch (error) {
+                    console.error('播放音频片段失败:', error);
+                }
+            }
+            
+            // 播放完成后重置按钮状态
+            if (button.isPlaying) {
+                button.innerHTML = '<i class="fas fa-play"></i> 播放完整音频';
+                button.isPlaying = false;
+                
+                // 清除所有播放状态
+                document.querySelectorAll(`#audio-group-${groupIndex} .play-status`).forEach(status => {
+                    status.classList.remove('playing');
+                });
+            }
+        }
+        
+        // 播放单个音频片段
+        function playAudioSegment(url, button) {
+            return new Promise((resolve, reject) => {
+                const audio = new Audio(url);
+                button.currentAudio = audio;
+                
+                audio.addEventListener('ended', () => {
+                    button.currentAudio = null;
+                    resolve();
+                });
+                
+                audio.addEventListener('error', (e) => {
+                    button.currentAudio = null;
+                    reject(new Error('音频播放失败'));
+                });
+                
+                audio.play().catch(error => {
+                    button.currentAudio = null;
+                    reject(error);
+                });
+            });
+        }
+        
+        // 下载合并后的完整音频
+        async function downloadMergedAudio(groupIndex, button) {
+            if (!audioGroups[groupIndex]) {
+                showMessage('音频组不存在', 'error');
+                return;
+            }
+            
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 合并中...';
+            
+            try {
+                // 检查是否已经合并过
+                if (!mergedAudios[groupIndex]) {
+                    // 过滤出成功的片段
+                    const validSegments = audioGroups[groupIndex].segments.filter(seg => !seg.error);
+                    
+                    if (validSegments.length === 0) {
+                        showMessage('没有可用的音频片段进行合并', 'error');
+                        return;
+                    }
+                    
+                    // 合并音频片段
+                    const mergedBlob = await mergeAudioSegments(validSegments);
+                    const mergedUrl = URL.createObjectURL(mergedBlob);
+                    mergedAudios[groupIndex] = {
+                        blob: mergedBlob,
+                        url: mergedUrl
+                    };
+                }
+                
+                // 创建下载链接
+                const a = document.createElement('a');
+                a.href = mergedAudios[groupIndex].url;
+                a.download = `${audioGroups[groupIndex].index}.wav`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                showMessage('完整音频下载成功！', 'success');
+                
+            } catch (error) {
+                showMessage(`合并音频失败: ${error.message}`, 'error');
+            } finally {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        }
+        
+        // 打包下载按钮点击事件
+        document.getElementById('downloadBtn').addEventListener('click', async function() {
+            if (audioGroups.length === 0) {
+                alert('没有可下载的音频文件');
+                return;
+            }
+            
+            const messageDiv = document.getElementById('message');
+            messageDiv.innerHTML = '<i class="fas fa-compress-arrows-alt"></i> 正在打包音频文件...';
+            messageDiv.className = '';
+            
+            this.disabled = true;
+            const originalText = this.innerHTML;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 打包中...';
+            
+            try {
+                const zip = new JSZip();
+                
+                // 为每个组生成合并音频并添加到zip
+                for (let groupIndex = 0; groupIndex < audioGroups.length; groupIndex++) {
+                    // 检查是否已经合并过
+                    if (!mergedAudios[groupIndex]) {
+                        const validSegments = audioGroups[groupIndex].segments.filter(seg => !seg.error);
+                        
+                        if (validSegments.length > 0) {
+                            const mergedBlob = await mergeAudioSegments(validSegments);
+                            mergedAudios[groupIndex] = {
+                                blob: mergedBlob
+                            };
+                        }
+                    }
+                    
+                    // 如果合并成功，添加到zip
+                    if (mergedAudios[groupIndex]) {
+                        const originalAudioFileName = `${audioGroups[groupIndex].index}`;
+                        const audioFileNameList = originalAudioFileName.split('&');
+                        audioFileNameList.forEach(function(audioFileName) {
+                            zip.file(`${audioFileName}.wav`, mergedAudios[groupIndex].blob);
+                        });
+                    }
+                }
+                
+                // 生成zip文件
+                const content = await zip.generateAsync({type: "blob"});
+                
+                // 下载zip文件
+                saveAs(content, "完整音频文件.zip");
+                
+                messageDiv.innerHTML = '<i class="fas fa-check-circle"></i> 音频文件打包下载完成！';
+                messageDiv.className = 'success';
+                
+            } catch (error) {
+                messageDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> 打包失败: ${error.message}`;
+                messageDiv.className = 'error';
+            } finally {
+                this.disabled = false;
+                this.innerHTML = originalText;
+            }
+        });
+        
+        // 解析Excel文件
+        function parseExcelFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                
+                reader.onload = function(e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        
+                        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                        
+                        if (jsonData.length === 0) {
+                            reject(new Error('Excel文件中没有数据'));
+                            return;
+                        }
+                        
+                        const firstRow = jsonData[0];
+                        if (!firstRow.hasOwnProperty('语料名称') || !firstRow.hasOwnProperty('文字内容')) {
+                            reject(new Error('Excel文件表头必须包含"语料名称"和"文字内容"列'));
+                            return;
+                        }
+                        
+                        const validData = jsonData
+                            .filter(row => row['语料名称'] && row['文字内容'])
+                            .map(row => ({
+                                index: row['语料名称'],
+                                text: row['文字内容'].toString().trim()
+                            }))
+                            .filter(item => item.text !== '');
+                        
+                        if (validData.length === 0) {
+                            reject(new Error('Excel文件中没有有效的文本数据'));
+                            return;
+                        }
+                        
+                        resolve(validData);
+                    } catch (error) {
+                        reject(new Error('解析Excel文件失败: ' + error.message));
+                    }
+                };
+                
+                reader.onerror = function() {
+                    reject(new Error('读取文件失败'));
+                };
+                
+                reader.readAsArrayBuffer(file);
+            });
+        }
+    </script>
+</body>
+</html>
