@@ -221,13 +221,22 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     wavesurfer.on('timeupdate', (time) => {
       setCurrentTime(time);
       // Check if we need to loop back to selection start
-      // Add a small tolerance (0.05s) to prevent edge cases where time exactly equals end
-      if (loopingRef.current && selectionRef.current && time >= selectionRef.current.end - 0.05) {
-        const now = Date.now();
-        // Debounce to prevent infinite loops or stuttering
-        if (now - lastLoopTime > loopDebounceMs) {
-          lastLoopTime = now;
-          wavesurfer.setTime(selectionRef.current.start);
+      // When looping is enabled and we have a selection, check if we've reached the end
+      if (loopingRef.current && selectionRef.current) {
+        const selection = selectionRef.current;
+        // Add a small tolerance (0.05s) to prevent edge cases where time exactly equals end
+        if (time >= selection.end - 0.05) {
+          const now = Date.now();
+          // Debounce to prevent infinite loops or stuttering
+          if (now - lastLoopTime > loopDebounceMs) {
+            lastLoopTime = now;
+            // Pause current playback first to reset state cleanly
+            wavesurfer.pause();
+            // Set time to selection start
+            wavesurfer.setTime(selection.start);
+            // Resume playback
+            wavesurfer.play();
+          }
         }
       }
     });
@@ -241,6 +250,9 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         }
       });
       
+      // Set loop property based on current loop state
+      region.loop = loopingRef.current;
+      
       setSelection({
         start: region.start,
         end: region.end,
@@ -249,11 +261,21 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     });
 
     regionsPlugin.on('region-updated', (region) => {
+      // Maintain loop property when region is updated
+      region.loop = loopingRef.current;
+      
       setSelection({
         start: region.start,
         end: region.end,
         region: region
       });
+    });
+
+    // Handle region click to play the region
+    regionsPlugin.on('region-clicked', (region, e) => {
+      e.stopPropagation();
+      // Play the region - WaveSurfer.js will respect the region's loop property
+      region.play();
     });
 
     // Enable region creation on drag
@@ -302,18 +324,28 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     if (isPlaying) {
       wavesurferRef.current.pause();
     } else {
-      // If looping is enabled and we have a selection, start from selection start
-      if (isLooping && selection) {
-        wavesurferRef.current.setTime(selection.start);
+      // If we have a selection, use region play for better loop support
+      if (selection && selection.region) {
+        // The region.play() method respects the region's loop property
+        selection.region.play();
+      } else {
+        // No selection, play normally from current position
+        wavesurferRef.current.play();
       }
-      wavesurferRef.current.play();
     }
-  }, [isPlaying, isLooping, selection]);
+  }, [isPlaying, selection]);
 
   // Toggle loop mode
   const handleToggleLoop = useCallback(() => {
-    setIsLooping(prev => !prev);
-  }, []);
+    setIsLooping(prev => {
+      const newLoopState = !prev;
+      // If we have a selection region, update its loop property
+      if (selection && selection.region) {
+        selection.region.loop = newLoopState;
+      }
+      return newLoopState;
+    });
+  }, [selection]);
 
   // Clear selection - moved before functions that use it
   const clearSelection = useCallback(() => {
