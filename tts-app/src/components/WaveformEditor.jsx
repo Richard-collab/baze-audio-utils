@@ -906,12 +906,13 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
                 <Slider
                   value={loudnessMultiplier}
                   onChange={(e, v) => {
+                    // Only update slider value for visual feedback during drag
                     setLoudnessMultiplier(v);
-                    // Apply volume change in real-time as slider moves
-                    handleVolumeAdjust(v);
                   }}
-                  onChangeCommitted={() => {
-                    // Reset to 100% after drag ends
+                  onChangeCommitted={(e, v) => {
+                    // Apply volume change only when drag ends (mouse released)
+                    handleVolumeAdjust(v);
+                    // Reset to 100% after applying the change
                     setTimeout(() => setLoudnessMultiplier(1.0), 100);
                   }}
                   min={0.1}
