@@ -711,7 +711,9 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         handlersRef.current.handleCopy?.();
       } else if (e.ctrlKey && e.code === 'KeyX') {
         handlersRef.current.handleCut?.();
-      } else if (e.ctrlKey && e.code === 'KeyV') {
+      } else if (e.code === 'Delete') {
+        handlersRef.current.handleCut?.();
+      }else if (e.ctrlKey && e.code === 'KeyV') {
         handlersRef.current.handlePaste?.();
       } else if (e.ctrlKey && e.code === 'KeyS') {
         handlersRef.current.handleSave?.();
