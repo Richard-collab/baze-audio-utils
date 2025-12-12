@@ -916,7 +916,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
                   }}
                   min={0.1}
                   max={3}
-                  step={0.1}
+                  step={0.01}
                   valueLabelDisplay="auto"
                   valueLabelFormat={(v) => `${Math.round(v * 100)}%`}
                   sx={{ flex: 1 }}
