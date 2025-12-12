@@ -940,11 +940,11 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
               <Slider
                 value={silenceLength}
                 onChange={(e, v) => setSilenceLength(v)}
-                min={0}
+                min={0.1}
                 max={30}
                 step={0.1}
                 marks={[
-                  { value: 0, label: '0s' },
+                  { value: 0.1, label: '0.1s' },
                   { value: 5, label: '5s' },
                   { value: 10, label: '10s' },
                   { value: 15, label: '15s' },
@@ -961,12 +961,12 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
                 value={silenceLength}
                 onChange={(e) => {
                   const value = parseFloat(e.target.value);
-                  if (!isNaN(value) && value >= 0 && value <= 30) {
+                  if (!isNaN(value) && value > 0 && value <= 30) {
                     setSilenceLength(value);
                   }
                 }}
                 inputProps={{
-                  min: 0,
+                  min: 0.1,
                   max: 30,
                   step: 0.1,
                 }}
