@@ -656,7 +656,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
               value={silenceLength}
               onChange={(e) => {
                 const value = parseFloat(e.target.value);
-                if (!isNaN(value) && value > 0 && value <= 30) {
+                if (!isNaN(value) && value >= 0.1 && value <= 30) {
                   setSilenceLength(value);
                 }
               }}
