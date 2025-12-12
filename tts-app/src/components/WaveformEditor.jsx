@@ -98,6 +98,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const tempUrlRef = useRef(null); // Track temporary object URLs for cleanup
   const loopingRef = useRef(false); // Track loop state to avoid stale closure
   const suppressNextSeekRef = useRef(false); // Suppress seek event during drag-selection
+  const baselineAudioBufferRef = useRef(null); // Store audio buffer before drag starts for preview
+  const isDraggingLoudnessRef = useRef(false); // Track if loudness slider is being dragged
 
   // Store refs for functions that need to be called from useEffect
   const historyRef = useRef(history);
@@ -211,11 +213,22 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     wavesurfer.on('play', () => setIsPlaying(true));
     wavesurfer.on('pause', () => setIsPlaying(false));
     wavesurfer.on('finish', () => {
-      setIsPlaying(false);
-      // If looping is enabled and we have a selection, restart from selection start
-      if (loopingRef.current && selectionRef.current) {
-        wavesurfer.setTime(selectionRef.current.start);
+      console.log('Audio finished, looping:', loopingRef.current, 'selection:', selectionRef.current);
+      // If looping is enabled, restart playback immediately
+      if (loopingRef.current) {
+        if (selectionRef.current) {
+          // Loop from selection start if we have a selection
+          console.log('Restarting from selection start:', selectionRef.current.start);
+          wavesurfer.setTime(selectionRef.current.start);
+        } else {
+          // Loop from beginning if no selection (loop entire audio)
+          console.log('Restarting from beginning');
+          wavesurfer.setTime(0);
+        }
         wavesurfer.play();
+      } else {
+        // Only set playing to false if not looping
+        setIsPlaying(false);
       }
     });
 
@@ -243,6 +256,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         const now = Date.now();
         // Debounce to prevent infinite loops or stuttering
         if (now - lastLoopTime > loopDebounceMs) {
+          console.log('Looping back to selection start:', selectionRef.current.start, 'from time:', time);
           lastLoopTime = now;
           wavesurfer.setTime(selectionRef.current.start);
         }
@@ -333,8 +347,17 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
   // Toggle loop mode
   const handleToggleLoop = useCallback(() => {
-    setIsLooping(prev => !prev);
-  }, []);
+    const newLooping = !isLooping;
+    setIsLooping(newLooping);
+    
+    // When enabling loop with a selection, immediately start playing from selection start
+    if (newLooping && selection && wavesurferRef.current) {
+      console.log('Loop enabled with selection:', selection);
+      wavesurferRef.current.pause(); // Pause first to ensure clean state
+      wavesurferRef.current.setTime(selection.start);
+      wavesurferRef.current.play();
+    }
+  }, [isLooping, selection]);
 
   // Clear selection - moved before functions that use it
   const clearSelection = useCallback(() => {
@@ -439,6 +462,15 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
     try {
       let newBuffer;
+      let pasteStartTime;
+      let pasteEndTime;
+      
+      // Calculate duration of pasted content in seconds
+      // Use clipboard's sample rate for accurate duration calculation
+      const pasteDuration = clipboard.length / clipboard.sampleRate;
+      
+      // Delay for waveform reload before creating selection region
+      const WAVEFORM_RELOAD_DELAY_MS = 100;
 
       if (selection) {
         // Replace selection with clipboard content
@@ -451,6 +483,9 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           selectionEndSample,
           audioContextRef.current
         );
+        // Calculate time range of pasted content
+        pasteStartTime = selection.start;
+        pasteEndTime = pasteStartTime + pasteDuration;
         clearSelectionAndCursor();
       } else if (cursorTime !== null) {
         // Insert at cursor position
@@ -461,6 +496,9 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           insertPosition,
           audioContextRef.current
         );
+        // Calculate time range of pasted content
+        pasteStartTime = cursorTime;
+        pasteEndTime = pasteStartTime + pasteDuration;
         clearSelectionAndCursor();
       } else {
         // Insert at currentTime
@@ -471,9 +509,24 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           insertPosition,
           audioContextRef.current
         );
+        // Calculate time range of pasted content
+        pasteStartTime = currentTime;
+        pasteEndTime = pasteStartTime + pasteDuration;
       }
 
       updateAudioBuffer(newBuffer);
+      
+      // Create a new selection highlighting the pasted content
+      // Wait for waveform to reload before creating the region
+      setTimeout(() => {
+        if (regionsPluginRef.current && pasteStartTime !== undefined && pasteEndTime !== undefined) {
+          regionsPluginRef.current.addRegion({
+            start: pasteStartTime,
+            end: pasteEndTime,
+            color: 'rgba(108, 92, 231, 0.3)',
+          });
+        }
+      }, WAVEFORM_RELOAD_DELAY_MS);
     } catch (error) {
       console.error('Failed to paste audio:', error);
     }
@@ -515,27 +568,28 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   }, [audioBuffer, silenceLength, cursorTime, currentTime, updateAudioBuffer, clearSelection]);
 
   // Adjust volume/loudness for selection or entire audio
-  const handleVolumeAdjust = useCallback((newVolume) => {
-    if (!audioBuffer) return;
+  const handleVolumeAdjust = useCallback((newVolume, sourceBuffer = null) => {
+    const bufferToUse = sourceBuffer || audioBuffer;
+    if (!bufferToUse) return;
 
     const startSample = selection 
-      ? Math.floor(selection.start * audioBuffer.sampleRate) 
+      ? Math.floor(selection.start * bufferToUse.sampleRate) 
       : 0;
     const endSample = selection 
-      ? Math.floor(selection.end * audioBuffer.sampleRate) 
-      : audioBuffer.length;
+      ? Math.floor(selection.end * bufferToUse.sampleRate) 
+      : bufferToUse.length;
 
     const newBuffer = audioContextRef.current.createBuffer(
-      audioBuffer.numberOfChannels,
-      audioBuffer.length,
-      audioBuffer.sampleRate
+      bufferToUse.numberOfChannels,
+      bufferToUse.length,
+      bufferToUse.sampleRate
     );
 
-    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-      const sourceData = audioBuffer.getChannelData(channel);
+    for (let channel = 0; channel < bufferToUse.numberOfChannels; channel++) {
+      const sourceData = bufferToUse.getChannelData(channel);
       const newData = newBuffer.getChannelData(channel);
 
-      for (let i = 0; i < audioBuffer.length; i++) {
+      for (let i = 0; i < bufferToUse.length; i++) {
         if (i >= startSample && i < endSample) {
           newData[i] = Math.max(-1, Math.min(1, sourceData[i] * newVolume));
         } else {
@@ -546,6 +600,42 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
     updateAudioBuffer(newBuffer);
   }, [audioBuffer, selection, updateAudioBuffer]);
+
+  // Preview volume/loudness change during drag (temporary visualization)
+  const previewVolumeAdjust = useCallback((newVolume, baselineBuffer) => {
+    if (!baselineBuffer || !wavesurferRef.current) return;
+
+    const startSample = selection 
+      ? Math.floor(selection.start * baselineBuffer.sampleRate) 
+      : 0;
+    const endSample = selection 
+      ? Math.floor(selection.end * baselineBuffer.sampleRate) 
+      : baselineBuffer.length;
+
+    const previewBuffer = audioContextRef.current.createBuffer(
+      baselineBuffer.numberOfChannels,
+      baselineBuffer.length,
+      baselineBuffer.sampleRate
+    );
+
+    for (let channel = 0; channel < baselineBuffer.numberOfChannels; channel++) {
+      const sourceData = baselineBuffer.getChannelData(channel);
+      const previewData = previewBuffer.getChannelData(channel);
+
+      for (let i = 0; i < baselineBuffer.length; i++) {
+        if (i >= startSample && i < endSample) {
+          previewData[i] = Math.max(-1, Math.min(1, sourceData[i] * newVolume));
+        } else {
+          previewData[i] = sourceData[i];
+        }
+      }
+    }
+
+    // Update waveform display with preview (without affecting history)
+    const blob = bufferToWaveBlob(previewBuffer);
+    const url = createTempUrl(blob);
+    wavesurferRef.current.load(url);
+  }, [selection, createTempUrl]);
 
   // Undo
   const handleUndo = useCallback(() => {
@@ -673,13 +763,12 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
             />
 
             {/* Loop Toggle */}
-            <Tooltip title={isLooping ? "关闭循环播放" : "开启循环播放选区 (需要先选择区域)"}>
+            <Tooltip title={isLooping ? "关闭循环播放" : (selection ? "开启循环播放选区" : "开启循环播放整个音频")}>
               <Button
                 variant={isLooping ? "contained" : "outlined"}
                 startIcon={<LoopIcon />}
                 onClick={handleToggleLoop}
                 color={isLooping ? "secondary" : "primary"}
-                disabled={!selection}
               >
                 {isLooping ? '循环中' : '循环'}
               </Button>
@@ -850,59 +939,45 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
             <Box>
               <Typography variant="body2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <VolumeUpIcon fontSize="small" />
-                响度调整 {selection ? '(选区)' : '(全局)'}
+                响度调整 {selection ? '(选区)' : '(全局)'} - {Math.round(loudnessMultiplier * 100)}%
               </Typography>
               <Stack direction="row" spacing={2} alignItems="center">
                 <Slider
                   value={loudnessMultiplier}
-                  onChange={(e, v) => setLoudnessMultiplier(v)}
+                  onMouseDown={() => {
+                    // Store baseline buffer when drag starts
+                    if (audioBuffer && !isDraggingLoudnessRef.current) {
+                      isDraggingLoudnessRef.current = true;
+                      baselineAudioBufferRef.current = audioBuffer;
+                    }
+                  }}
+                  onChange={(e, v) => {
+                    // Update slider value and show preview during drag
+                    setLoudnessMultiplier(v);
+                    // Apply preview based on baseline buffer (before drag started)
+                    if (baselineAudioBufferRef.current) {
+                      previewVolumeAdjust(v, baselineAudioBufferRef.current);
+                    }
+                  }}
+                  onChangeCommitted={(e, v) => {
+                    // Apply volume change permanently when drag ends (mouse released)
+                    if (baselineAudioBufferRef.current) {
+                      // Apply change to baseline buffer (before drag started)
+                      handleVolumeAdjust(v, baselineAudioBufferRef.current);
+                      // Clear baseline reference
+                      baselineAudioBufferRef.current = null;
+                      isDraggingLoudnessRef.current = false;
+                    }
+                    // Reset to 100% after applying the change
+                    setTimeout(() => setLoudnessMultiplier(1.0), 100);
+                  }}
                   min={0.1}
                   max={3}
-                  step={0.1}
+                  step={0.01}
                   valueLabelDisplay="auto"
                   valueLabelFormat={(v) => `${Math.round(v * 100)}%`}
                   sx={{ flex: 1 }}
                 />
-                <Button 
-                  variant="outlined" 
-                  size="small"
-                  onClick={() => {
-                    handleVolumeAdjust(loudnessMultiplier);
-                    setLoudnessMultiplier(1.0);
-                  }}
-                >
-                  应用
-                </Button>
-                <Button 
-                  variant="outlined" 
-                  size="small"
-                  onClick={() => {
-                    handleVolumeAdjust(0.5);
-                    setLoudnessMultiplier(1.0);
-                  }}
-                >
-                  -50%
-                </Button>
-                <Button 
-                  variant="outlined" 
-                  size="small"
-                  onClick={() => {
-                    handleVolumeAdjust(1.5);
-                    setLoudnessMultiplier(1.0);
-                  }}
-                >
-                  +50%
-                </Button>
-                <Button 
-                  variant="outlined" 
-                  size="small"
-                  onClick={() => {
-                    handleVolumeAdjust(2.0);
-                    setLoudnessMultiplier(1.0);
-                  }}
-                >
-                  +100%
-                </Button>
               </Stack>
             </Box>
 
