@@ -213,12 +213,16 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     wavesurfer.on('play', () => setIsPlaying(true));
     wavesurfer.on('pause', () => setIsPlaying(false));
     wavesurfer.on('finish', () => {
-      // If looping is enabled and there's NO selection, loop the entire audio
-      // When there's a selection, the region-out event handles looping instead
-      if (loopingRef.current && !selectionRef.current) {
-        // Loop from beginning (loop entire audio)
-        wavesurfer.setTime(0);
-        wavesurfer.play();
+      // If looping is enabled, restart playback
+      if (loopingRef.current) {
+        if (selectionRef.current && selectionRef.current.region) {
+          // Loop from selection start using region.play() for continuous looping
+          selectionRef.current.region.play();
+        } else {
+          // Loop from beginning (loop entire audio when no selection)
+          wavesurfer.setTime(0);
+          wavesurfer.play();
+        }
       } else {
         // Only set playing to false if not looping
         setIsPlaying(false);
