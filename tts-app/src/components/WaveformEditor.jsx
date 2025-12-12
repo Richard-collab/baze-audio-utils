@@ -98,6 +98,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const tempUrlRef = useRef(null); // Track temporary object URLs for cleanup
   const loopingRef = useRef(false); // Track loop state to avoid stale closure
   const suppressNextSeekRef = useRef(false); // Suppress seek event during drag-selection
+  const baselineAudioBufferRef = useRef(null); // Store audio buffer before drag starts for preview
+  const isDraggingLoudnessRef = useRef(false); // Track if loudness slider is being dragged
 
   // Store refs for functions that need to be called from useEffect
   const historyRef = useRef(history);
@@ -566,27 +568,28 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   }, [audioBuffer, silenceLength, cursorTime, currentTime, updateAudioBuffer, clearSelection]);
 
   // Adjust volume/loudness for selection or entire audio
-  const handleVolumeAdjust = useCallback((newVolume) => {
-    if (!audioBuffer) return;
+  const handleVolumeAdjust = useCallback((newVolume, sourceBuffer = null) => {
+    const bufferToUse = sourceBuffer || audioBuffer;
+    if (!bufferToUse) return;
 
     const startSample = selection 
-      ? Math.floor(selection.start * audioBuffer.sampleRate) 
+      ? Math.floor(selection.start * bufferToUse.sampleRate) 
       : 0;
     const endSample = selection 
-      ? Math.floor(selection.end * audioBuffer.sampleRate) 
-      : audioBuffer.length;
+      ? Math.floor(selection.end * bufferToUse.sampleRate) 
+      : bufferToUse.length;
 
     const newBuffer = audioContextRef.current.createBuffer(
-      audioBuffer.numberOfChannels,
-      audioBuffer.length,
-      audioBuffer.sampleRate
+      bufferToUse.numberOfChannels,
+      bufferToUse.length,
+      bufferToUse.sampleRate
     );
 
-    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-      const sourceData = audioBuffer.getChannelData(channel);
+    for (let channel = 0; channel < bufferToUse.numberOfChannels; channel++) {
+      const sourceData = bufferToUse.getChannelData(channel);
       const newData = newBuffer.getChannelData(channel);
 
-      for (let i = 0; i < audioBuffer.length; i++) {
+      for (let i = 0; i < bufferToUse.length; i++) {
         if (i >= startSample && i < endSample) {
           newData[i] = Math.max(-1, Math.min(1, sourceData[i] * newVolume));
         } else {
@@ -597,6 +600,42 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
     updateAudioBuffer(newBuffer);
   }, [audioBuffer, selection, updateAudioBuffer]);
+
+  // Preview volume/loudness change during drag (temporary visualization)
+  const previewVolumeAdjust = useCallback((newVolume, baselineBuffer) => {
+    if (!baselineBuffer || !wavesurferRef.current) return;
+
+    const startSample = selection 
+      ? Math.floor(selection.start * baselineBuffer.sampleRate) 
+      : 0;
+    const endSample = selection 
+      ? Math.floor(selection.end * baselineBuffer.sampleRate) 
+      : baselineBuffer.length;
+
+    const previewBuffer = audioContextRef.current.createBuffer(
+      baselineBuffer.numberOfChannels,
+      baselineBuffer.length,
+      baselineBuffer.sampleRate
+    );
+
+    for (let channel = 0; channel < baselineBuffer.numberOfChannels; channel++) {
+      const sourceData = baselineBuffer.getChannelData(channel);
+      const previewData = previewBuffer.getChannelData(channel);
+
+      for (let i = 0; i < baselineBuffer.length; i++) {
+        if (i >= startSample && i < endSample) {
+          previewData[i] = Math.max(-1, Math.min(1, sourceData[i] * newVolume));
+        } else {
+          previewData[i] = sourceData[i];
+        }
+      }
+    }
+
+    // Update waveform display with preview (without affecting history)
+    const blob = bufferToWaveBlob(previewBuffer);
+    const url = createTempUrl(blob);
+    wavesurferRef.current.load(url);
+  }, [selection, createTempUrl]);
 
   // Undo
   const handleUndo = useCallback(() => {
@@ -905,13 +944,30 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
               <Stack direction="row" spacing={2} alignItems="center">
                 <Slider
                   value={loudnessMultiplier}
+                  onMouseDown={() => {
+                    // Store baseline buffer when drag starts
+                    if (audioBuffer && !isDraggingLoudnessRef.current) {
+                      isDraggingLoudnessRef.current = true;
+                      baselineAudioBufferRef.current = audioBuffer;
+                    }
+                  }}
                   onChange={(e, v) => {
-                    // Only update slider value for visual feedback during drag
+                    // Update slider value and show preview during drag
                     setLoudnessMultiplier(v);
+                    // Apply preview based on baseline buffer (before drag started)
+                    if (baselineAudioBufferRef.current) {
+                      previewVolumeAdjust(v, baselineAudioBufferRef.current);
+                    }
                   }}
                   onChangeCommitted={(e, v) => {
-                    // Apply volume change only when drag ends (mouse released)
-                    handleVolumeAdjust(v);
+                    // Apply volume change permanently when drag ends (mouse released)
+                    if (baselineAudioBufferRef.current) {
+                      // Apply change to baseline buffer (before drag started)
+                      handleVolumeAdjust(v, baselineAudioBufferRef.current);
+                      // Clear baseline reference
+                      baselineAudioBufferRef.current = null;
+                      isDraggingLoudnessRef.current = false;
+                    }
                     // Reset to 100% after applying the change
                     setTimeout(() => setLoudnessMultiplier(1.0), 100);
                   }}
