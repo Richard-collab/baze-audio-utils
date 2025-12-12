@@ -435,42 +435,46 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const handlePaste = useCallback(() => {
     if (!clipboard || !audioBuffer) return;
 
-    let newBuffer;
+    try {
+      let newBuffer;
 
-    if (selection) {
-      // Replace selection with clipboard content
-      const selectionStartSample = Math.floor(selection.start * audioBuffer.sampleRate);
-      const selectionEndSample = Math.floor(selection.end * audioBuffer.sampleRate);
-      newBuffer = replaceSelection(
-        audioBuffer,
-        clipboard,
-        selectionStartSample,
-        selectionEndSample,
-        audioContextRef.current
-      );
-      clearSelectionAndCursor();
-    } else if (cursorTime !== null) {
-      // Insert at cursor position
-      const insertPosition = Math.floor(cursorTime * audioBuffer.sampleRate);
-      newBuffer = insertAtPosition(
-        audioBuffer,
-        clipboard,
-        insertPosition,
-        audioContextRef.current
-      );
-      clearSelectionAndCursor();
-    } else {
-      // Insert at currentTime
-      const insertPosition = Math.floor(currentTime * audioBuffer.sampleRate);
-      newBuffer = insertAtPosition(
-        audioBuffer,
-        clipboard,
-        insertPosition,
-        audioContextRef.current
-      );
+      if (selection) {
+        // Replace selection with clipboard content
+        const selectionStartSample = Math.floor(selection.start * audioBuffer.sampleRate);
+        const selectionEndSample = Math.floor(selection.end * audioBuffer.sampleRate);
+        newBuffer = replaceSelection(
+          audioBuffer,
+          clipboard,
+          selectionStartSample,
+          selectionEndSample,
+          audioContextRef.current
+        );
+        clearSelectionAndCursor();
+      } else if (cursorTime !== null) {
+        // Insert at cursor position
+        const insertPosition = Math.floor(cursorTime * audioBuffer.sampleRate);
+        newBuffer = insertAtPosition(
+          audioBuffer,
+          clipboard,
+          insertPosition,
+          audioContextRef.current
+        );
+        clearSelectionAndCursor();
+      } else {
+        // Insert at currentTime
+        const insertPosition = Math.floor(currentTime * audioBuffer.sampleRate);
+        newBuffer = insertAtPosition(
+          audioBuffer,
+          clipboard,
+          insertPosition,
+          audioContextRef.current
+        );
+      }
+
+      updateAudioBuffer(newBuffer);
+    } catch (error) {
+      console.error('Failed to paste audio:', error);
     }
-
-    updateAudioBuffer(newBuffer);
   }, [clipboard, audioBuffer, selection, cursorTime, currentTime, updateAudioBuffer, clearSelectionAndCursor]);
 
   // Adjust volume/loudness for selection or entire audio

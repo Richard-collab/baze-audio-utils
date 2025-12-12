@@ -229,5 +229,55 @@ describe('Audio Buffer Manipulation', () => {
       expect(resultDataR[2]).toBeCloseTo(0.99, 5);
       expect(resultDataR[3]).toBeCloseTo(0.98, 5);
     });
+
+    it('should throw error for invalid clipboard buffer', () => {
+      const sourceBuffer = audioContext.createBuffer(1, 10, 44100);
+      const invalidClipboard = null;
+      
+      expect(() => {
+        insertAtPosition(sourceBuffer, invalidClipboard, 5, audioContext);
+      }).toThrow('Invalid clipboard buffer');
+    });
+
+    it('should throw error for invalid insert position', () => {
+      const sourceBuffer = audioContext.createBuffer(1, 10, 44100);
+      const clipboardBuffer = audioContext.createBuffer(1, 2, 44100);
+      
+      expect(() => {
+        insertAtPosition(sourceBuffer, clipboardBuffer, -1, audioContext);
+      }).toThrow('Invalid insert position');
+      
+      expect(() => {
+        insertAtPosition(sourceBuffer, clipboardBuffer, 11, audioContext);
+      }).toThrow('Invalid insert position');
+    });
+  });
+
+  describe('Input validation', () => {
+    it('should throw error for replaceSelection with invalid clipboard', () => {
+      const sourceBuffer = audioContext.createBuffer(1, 10, 44100);
+      const invalidClipboard = null;
+      
+      expect(() => {
+        replaceSelection(sourceBuffer, invalidClipboard, 2, 5, audioContext);
+      }).toThrow('Invalid clipboard buffer');
+    });
+
+    it('should throw error for replaceSelection with invalid selection range', () => {
+      const sourceBuffer = audioContext.createBuffer(1, 10, 44100);
+      const clipboardBuffer = audioContext.createBuffer(1, 2, 44100);
+      
+      expect(() => {
+        replaceSelection(sourceBuffer, clipboardBuffer, -1, 5, audioContext);
+      }).toThrow('Invalid selection range');
+      
+      expect(() => {
+        replaceSelection(sourceBuffer, clipboardBuffer, 2, 11, audioContext);
+      }).toThrow('Invalid selection range');
+      
+      expect(() => {
+        replaceSelection(sourceBuffer, clipboardBuffer, 5, 2, audioContext);
+      }).toThrow('Invalid selection range');
+    });
   });
 });

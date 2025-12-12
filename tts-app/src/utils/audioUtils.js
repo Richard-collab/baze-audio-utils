@@ -19,6 +19,14 @@ export function replaceSelection(
   selectionEndSample,
   audioContext
 ) {
+  // Validate inputs
+  if (!clipboardBuffer || clipboardBuffer.numberOfChannels <= 0) {
+    throw new Error('Invalid clipboard buffer: must have at least one channel');
+  }
+  if (selectionStartSample < 0 || selectionEndSample > sourceBuffer.length || selectionStartSample >= selectionEndSample) {
+    throw new Error('Invalid selection range');
+  }
+
   const selectionLength = selectionEndSample - selectionStartSample;
   const newLength = sourceBuffer.length - selectionLength + clipboardBuffer.length;
   
@@ -66,6 +74,14 @@ export function insertAtPosition(
   insertPositionSample,
   audioContext
 ) {
+  // Validate inputs
+  if (!clipboardBuffer || clipboardBuffer.numberOfChannels <= 0) {
+    throw new Error('Invalid clipboard buffer: must have at least one channel');
+  }
+  if (insertPositionSample < 0 || insertPositionSample > sourceBuffer.length) {
+    throw new Error('Invalid insert position');
+  }
+
   const newLength = sourceBuffer.length + clipboardBuffer.length;
   
   const newBuffer = audioContext.createBuffer(
