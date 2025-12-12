@@ -213,18 +213,11 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     wavesurfer.on('play', () => setIsPlaying(true));
     wavesurfer.on('pause', () => setIsPlaying(false));
     wavesurfer.on('finish', () => {
-      console.log('Audio finished, looping:', loopingRef.current, 'selection:', selectionRef.current);
-      // If looping is enabled, restart playback immediately
-      if (loopingRef.current) {
-        if (selectionRef.current) {
-          // Loop from selection start if we have a selection
-          console.log('Restarting from selection start:', selectionRef.current.start);
-          wavesurfer.setTime(selectionRef.current.start);
-        } else {
-          // Loop from beginning if no selection (loop entire audio)
-          console.log('Restarting from beginning');
-          wavesurfer.setTime(0);
-        }
+      // If looping is enabled and there's NO selection, loop the entire audio
+      // When there's a selection, the region-out event handles looping instead
+      if (loopingRef.current && !selectionRef.current) {
+        // Loop from beginning (loop entire audio)
+        wavesurfer.setTime(0);
         wavesurfer.play();
       } else {
         // Only set playing to false if not looping
@@ -244,23 +237,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
       clearSelection();
     });
     
-    // Track last loop time to prevent rapid consecutive loops
-    let lastLoopTime = 0;
-    const loopDebounceMs = 100; // 100ms debounce to prevent stuttering
-    
     wavesurfer.on('timeupdate', (time) => {
       setCurrentTime(time);
-      // Check if we need to loop back to selection start
-      // Add a small tolerance (0.05s) to prevent edge cases where time exactly equals end
-      if (loopingRef.current && selectionRef.current && time >= selectionRef.current.end - 0.05) {
-        const now = Date.now();
-        // Debounce to prevent infinite loops or stuttering
-        if (now - lastLoopTime > loopDebounceMs) {
-          console.log('Looping back to selection start:', selectionRef.current.start, 'from time:', time);
-          lastLoopTime = now;
-          wavesurfer.setTime(selectionRef.current.start);
-        }
-      }
     });
 
     // Region events for selection
@@ -289,6 +267,15 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         end: region.end,
         region: region
       });
+    });
+
+    // Handle region-out event for loop playback
+    // This fires when playback exits a region, allowing reliable loop detection
+    regionsPlugin.on('region-out', (region) => {
+      if (loopingRef.current) {
+        // When looping is enabled and playback exits the region, restart from the beginning of the region
+        region.play();
+      }
     });
 
     // Enable region creation on drag
@@ -350,12 +337,10 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     const newLooping = !isLooping;
     setIsLooping(newLooping);
     
-    // When enabling loop with a selection, immediately start playing from selection start
-    if (newLooping && selection && wavesurferRef.current) {
-      console.log('Loop enabled with selection:', selection);
-      wavesurferRef.current.pause(); // Pause first to ensure clean state
-      wavesurferRef.current.setTime(selection.start);
-      wavesurferRef.current.play();
+    // When enabling loop with a selection, immediately start playing from selection start using region.play()
+    if (newLooping && selection && selection.region && wavesurferRef.current) {
+      // Use region.play() for consistent behavior with the region-out handler
+      selection.region.play();
     }
   }, [isLooping, selection]);
 
