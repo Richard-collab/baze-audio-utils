@@ -341,16 +341,15 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
   // Toggle loop mode
   const handleToggleLoop = useCallback(() => {
-    setIsLooping(prev => {
-      const newLooping = !prev;
-      // When enabling loop with a selection, immediately start playing from selection start
-      if (newLooping && selection && wavesurferRef.current) {
-        wavesurferRef.current.setTime(selection.start);
-        wavesurferRef.current.play();
-      }
-      return newLooping;
-    });
-  }, [selection]);
+    const newLooping = !isLooping;
+    setIsLooping(newLooping);
+    
+    // When enabling loop with a selection, immediately start playing from selection start
+    if (newLooping && selection && wavesurferRef.current) {
+      wavesurferRef.current.setTime(selection.start);
+      wavesurferRef.current.play();
+    }
+  }, [isLooping, selection]);
 
   // Clear selection - moved before functions that use it
   const clearSelection = useCallback(() => {
@@ -900,10 +899,11 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
               <Stack direction="row" spacing={2} alignItems="center">
                 <Slider
                   value={loudnessMultiplier}
-                  onChange={(e, v) => {
-                    setLoudnessMultiplier(v);
+                  onChange={(e, v) => setLoudnessMultiplier(v)}
+                  onChangeCommitted={(e, v) => {
                     handleVolumeAdjust(v);
-                    setLoudnessMultiplier(1.0);
+                    // Reset to 100% after applying the change
+                    setTimeout(() => setLoudnessMultiplier(1.0), 100);
                   }}
                   min={0.1}
                   max={3}
