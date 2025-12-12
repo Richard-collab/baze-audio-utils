@@ -23,7 +23,7 @@ class MockAudioContext {
     return buffer;
   }
 
-  async decodeAudioData(arrayBuffer) {
+  async decodeAudioData() {
     // Simple mock that returns a buffer with 2 channels and 44100 samples (1 second)
     const buffer = this.createBuffer(2, 44100, 44100);
     return buffer;
@@ -31,15 +31,15 @@ class MockAudioContext {
 }
 
 // Set up global AudioContext mock
-global.AudioContext = MockAudioContext;
-global.webkitAudioContext = MockAudioContext;
+globalThis.AudioContext = MockAudioContext;
+globalThis.webkitAudioContext = MockAudioContext;
 
 // Mock URL.createObjectURL and URL.revokeObjectURL
-global.URL.createObjectURL = () => 'mock-object-url';
-global.URL.revokeObjectURL = () => {};
+globalThis.URL.createObjectURL = () => 'mock-object-url';
+globalThis.URL.revokeObjectURL = () => {};
 
 // Mock WaveSurfer
-global.WaveSurfer = {
+globalThis.WaveSurfer = {
   create: () => ({
     load: () => {},
     destroy: () => {},
