@@ -216,6 +216,9 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
       // If looping is enabled, restart playback
       if (loopingRef.current) {
         if (selectionRef.current && selectionRef.current.region) {
+          // Suppress the seek event that will be triggered by region.play()
+          // to prevent clearing the selection during loop restart
+          suppressNextSeekRef.current = true;
           // Loop from selection start using region.play() for continuous looping
           selectionRef.current.region.play();
         } else {
@@ -277,6 +280,9 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     // This fires when playback exits a region, allowing reliable loop detection
     regionsPlugin.on('region-out', (region) => {
       if (loopingRef.current) {
+        // Suppress the seek event that will be triggered by region.play()
+        // to prevent clearing the selection during loop restart
+        suppressNextSeekRef.current = true;
         // When looping is enabled and playback exits the region, restart from the beginning of the region
         region.play();
       }
