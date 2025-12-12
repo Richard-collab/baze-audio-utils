@@ -337,10 +337,16 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     const newLooping = !isLooping;
     setIsLooping(newLooping);
     
-    // When enabling loop with a selection, immediately start playing from selection start using region.play()
-    if (newLooping && selection && selection.region && wavesurferRef.current) {
-      // Use region.play() for consistent behavior with the region-out handler
-      selection.region.play();
+    // When enabling loop with a selection, immediately start playing from selection start
+    if (newLooping && selection && wavesurferRef.current) {
+      if (selection.region) {
+        // Use region.play() for consistent behavior with the region-out handler
+        selection.region.play();
+      } else {
+        // Fallback: use wavesurfer directly if region reference isn't available
+        wavesurferRef.current.setTime(selection.start);
+        wavesurferRef.current.play();
+      }
     }
   }, [isLooping, selection]);
 
