@@ -212,9 +212,15 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     wavesurfer.on('pause', () => setIsPlaying(false));
     wavesurfer.on('finish', () => {
       setIsPlaying(false);
-      // If looping is enabled and we have a selection, restart from selection start
-      if (loopingRef.current && selectionRef.current) {
-        wavesurfer.setTime(selectionRef.current.start);
+      // If looping is enabled, restart playback
+      if (loopingRef.current) {
+        if (selectionRef.current) {
+          // Loop from selection start if we have a selection
+          wavesurfer.setTime(selectionRef.current.start);
+        } else {
+          // Loop from beginning if no selection (loop entire audio)
+          wavesurfer.setTime(0);
+        }
         wavesurfer.play();
       }
     });
@@ -439,6 +445,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
     try {
       let newBuffer;
+      let pasteStartTime;
+      let pasteEndTime;
 
       if (selection) {
         // Replace selection with clipboard content
@@ -451,6 +459,9 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           selectionEndSample,
           audioContextRef.current
         );
+        // Calculate time range of pasted content
+        pasteStartTime = selection.start;
+        pasteEndTime = pasteStartTime + (clipboard.length / audioBuffer.sampleRate);
         clearSelectionAndCursor();
       } else if (cursorTime !== null) {
         // Insert at cursor position
@@ -461,6 +472,9 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           insertPosition,
           audioContextRef.current
         );
+        // Calculate time range of pasted content
+        pasteStartTime = cursorTime;
+        pasteEndTime = pasteStartTime + (clipboard.length / audioBuffer.sampleRate);
         clearSelectionAndCursor();
       } else {
         // Insert at currentTime
@@ -471,9 +485,24 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           insertPosition,
           audioContextRef.current
         );
+        // Calculate time range of pasted content
+        pasteStartTime = currentTime;
+        pasteEndTime = pasteStartTime + (clipboard.length / audioBuffer.sampleRate);
       }
 
       updateAudioBuffer(newBuffer);
+      
+      // Create a new selection highlighting the pasted content
+      // Wait for waveform to reload before creating the region
+      setTimeout(() => {
+        if (regionsPluginRef.current && pasteStartTime !== undefined && pasteEndTime !== undefined) {
+          regionsPluginRef.current.addRegion({
+            start: pasteStartTime,
+            end: pasteEndTime,
+            color: 'rgba(108, 92, 231, 0.3)',
+          });
+        }
+      }, 100);
     } catch (error) {
       console.error('Failed to paste audio:', error);
     }
@@ -673,13 +702,12 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
             />
 
             {/* Loop Toggle */}
-            <Tooltip title={isLooping ? "关闭循环播放" : "开启循环播放选区 (需要先选择区域)"}>
+            <Tooltip title={isLooping ? "关闭循环播放" : (selection ? "开启循环播放选区" : "开启循环播放整个音频")}>
               <Button
                 variant={isLooping ? "contained" : "outlined"}
                 startIcon={<LoopIcon />}
                 onClick={handleToggleLoop}
                 color={isLooping ? "secondary" : "primary"}
-                disabled={!selection}
               >
                 {isLooping ? '循环中' : '循环'}
               </Button>
