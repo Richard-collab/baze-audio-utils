@@ -513,16 +513,18 @@ function App() {
     setAudioGroups(prev => {
       const updated = [...prev];
       if (updated[groupIndex] && updated[groupIndex].segments[segmentIndex]) {
-        // Clear old URL if exists
-        if (updated[groupIndex].segments[segmentIndex].url && newData.url !== updated[groupIndex].segments[segmentIndex].url) {
+        // Clear old URL only if newData explicitly provides a new URL that differs from the old one
+        // Using Object.hasOwn to check if 'url' is explicitly passed in newData
+        const hasNewUrl = Object.hasOwn(newData, 'url');
+        if (hasNewUrl && updated[groupIndex].segments[segmentIndex].url && newData.url !== updated[groupIndex].segments[segmentIndex].url) {
           URL.revokeObjectURL(updated[groupIndex].segments[segmentIndex].url);
         }
         updated[groupIndex].segments[segmentIndex] = {
           ...updated[groupIndex].segments[segmentIndex],
           ...newData
         };
-        // Clear merged audio
-        if (mergedAudiosRef.current[groupIndex]) {
+        // Clear merged audio only if blob/url was updated (not just metadata like played status)
+        if (hasNewUrl && mergedAudiosRef.current[groupIndex]) {
           delete mergedAudiosRef.current[groupIndex];
         }
       }
