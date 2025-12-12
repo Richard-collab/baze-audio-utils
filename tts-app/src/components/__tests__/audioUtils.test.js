@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { replaceSelection, insertAtPosition } from './__helpers__/audioUtils';
+import { replaceSelection, insertAtPosition } from '../../utils/audioUtils';
 
 describe('Audio Buffer Manipulation', () => {
   let audioContext;

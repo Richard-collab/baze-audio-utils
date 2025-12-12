@@ -19,7 +19,7 @@ import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import CloseIcon from '@mui/icons-material/Close';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/plugins/regions';
-import { replaceSelection, insertAtPosition } from './__tests__/__helpers__/audioUtils';
+import { replaceSelection, insertAtPosition } from '../utils/audioUtils';
 
 // Helper function to convert AudioBuffer to WAV Blob (outside component)
 function bufferToWaveBlob(buffer) {
@@ -342,6 +342,12 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     setSelection(null);
   }, []);
 
+  // Clear both selection and cursor
+  const clearSelectionAndCursor = useCallback(() => {
+    clearSelection();
+    setCursorTime(null);
+  }, [clearSelection]);
+
   // Update audio buffer and history - moved before functions that use it
   const updateAudioBuffer = useCallback((newBuffer) => {
     setAudioBuffer(newBuffer);
@@ -422,9 +428,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     }
 
     updateAudioBuffer(newBuffer);
-    clearSelection();
-    setCursorTime(null);
-  }, [selection, audioBuffer, handleCopy, updateAudioBuffer, clearSelection]);
+    clearSelectionAndCursor();
+  }, [selection, audioBuffer, handleCopy, updateAudioBuffer, clearSelectionAndCursor]);
 
   // Paste from clipboard
   const handlePaste = useCallback(() => {
@@ -443,7 +448,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         selectionEndSample,
         audioContextRef.current
       );
-      clearSelection();
+      clearSelectionAndCursor();
     } else if (cursorTime !== null) {
       // Insert at cursor position
       const insertPosition = Math.floor(cursorTime * audioBuffer.sampleRate);
@@ -453,7 +458,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         insertPosition,
         audioContextRef.current
       );
-      setCursorTime(null);
+      clearSelectionAndCursor();
     } else {
       // Insert at currentTime
       const insertPosition = Math.floor(currentTime * audioBuffer.sampleRate);
@@ -466,7 +471,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     }
 
     updateAudioBuffer(newBuffer);
-  }, [clipboard, audioBuffer, selection, cursorTime, currentTime, updateAudioBuffer, clearSelection]);
+  }, [clipboard, audioBuffer, selection, cursorTime, currentTime, updateAudioBuffer, clearSelectionAndCursor]);
 
   // Adjust volume/loudness for selection or entire audio
   const handleVolumeAdjust = useCallback((newVolume) => {
