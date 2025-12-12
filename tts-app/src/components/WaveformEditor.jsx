@@ -211,13 +211,16 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     wavesurfer.on('play', () => setIsPlaying(true));
     wavesurfer.on('pause', () => setIsPlaying(false));
     wavesurfer.on('finish', () => {
+      console.log('Audio finished, looping:', loopingRef.current, 'selection:', selectionRef.current);
       // If looping is enabled, restart playback immediately
       if (loopingRef.current) {
         if (selectionRef.current) {
           // Loop from selection start if we have a selection
+          console.log('Restarting from selection start:', selectionRef.current.start);
           wavesurfer.setTime(selectionRef.current.start);
         } else {
           // Loop from beginning if no selection (loop entire audio)
+          console.log('Restarting from beginning');
           wavesurfer.setTime(0);
         }
         wavesurfer.play();
@@ -251,6 +254,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         const now = Date.now();
         // Debounce to prevent infinite loops or stuttering
         if (now - lastLoopTime > loopDebounceMs) {
+          console.log('Looping back to selection start:', selectionRef.current.start, 'from time:', time);
           lastLoopTime = now;
           wavesurfer.setTime(selectionRef.current.start);
         }
@@ -346,6 +350,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     
     // When enabling loop with a selection, immediately start playing from selection start
     if (newLooping && selection && wavesurferRef.current) {
+      console.log('Loop enabled with selection:', selection);
+      wavesurferRef.current.pause(); // Pause first to ensure clean state
       wavesurferRef.current.setTime(selection.start);
       wavesurferRef.current.play();
     }
@@ -899,10 +905,13 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
               <Stack direction="row" spacing={2} alignItems="center">
                 <Slider
                   value={loudnessMultiplier}
-                  onChange={(e, v) => setLoudnessMultiplier(v)}
-                  onChangeCommitted={(e, v) => {
+                  onChange={(e, v) => {
+                    setLoudnessMultiplier(v);
+                    // Apply volume change in real-time as slider moves
                     handleVolumeAdjust(v);
-                    // Reset to 100% after applying the change
+                  }}
+                  onChangeCommitted={() => {
+                    // Reset to 100% after drag ends
                     setTimeout(() => setLoudnessMultiplier(1.0), 100);
                   }}
                   min={0.1}
