@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Box, Button, IconButton, Slider, Typography, Tooltip, Divider,
-  Paper, Stack
+  Paper, Stack, TextField
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
@@ -17,6 +17,7 @@ import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import CloseIcon from '@mui/icons-material/Close';
+import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/plugins/regions';
 import { replaceSelection, insertAtPosition } from '../utils/audioUtils';
@@ -91,6 +92,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const [loudnessMultiplier, setLoudnessMultiplier] = useState(1.0);
   const [containerReady, setContainerReady] = useState(false);
   const [isWavesurferReady, setIsWavesurferReady] = useState(false);
+  const [insertSilenceOpen, setInsertSilenceOpen] = useState(false);
+  const [silenceLength, setSilenceLength] = useState(5);
   const audioContextRef = useRef(null);
   const regionsPluginRef = useRef(null);
   const tempUrlRef = useRef(null); // Track temporary object URLs for cleanup
@@ -477,6 +480,39 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     }
   }, [clipboard, audioBuffer, selection, cursorTime, currentTime, updateAudioBuffer, clearSelectionAndCursor]);
 
+  // Insert silence at cursor or current time
+  const handleConfirmInsertSilence = useCallback(() => {
+    if (!audioBuffer || !audioContextRef.current) return;
+
+    try {
+      // Create silence buffer
+      const silenceBuffer = audioContextRef.current.createBuffer(
+        audioBuffer.numberOfChannels,
+        Math.floor(audioBuffer.sampleRate * silenceLength),
+        audioBuffer.sampleRate
+      );
+      // Buffer is automatically initialized to silence (zeros)
+
+      // Determine insert position: cursor time > current time
+      const insertTime = cursorTime !== null ? cursorTime : currentTime;
+      const insertPosition = Math.floor(insertTime * audioBuffer.sampleRate);
+
+      // Insert silence at position
+      const newBuffer = insertAtPosition(
+        audioBuffer,
+        silenceBuffer,
+        insertPosition,
+        audioContextRef.current
+      );
+
+      updateAudioBuffer(newBuffer);
+      clearSelectionAndCursor();
+      setInsertSilenceOpen(false);
+    } catch (error) {
+      console.error('Failed to insert silence:', error);
+    }
+  }, [audioBuffer, silenceLength, cursorTime, currentTime, updateAudioBuffer, clearSelectionAndCursor]);
+
   // Adjust volume/loudness for selection or entire audio
   const handleVolumeAdjust = useCallback((newVolume) => {
     if (!audioBuffer) return;
@@ -663,6 +699,18 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
                 disabled={!selection}
               >
                 剪切
+              </Button>
+            </Tooltip>
+
+            {/* Insert Silence */}
+            <Tooltip title="插入空白音">
+              <Button
+                variant="outlined"
+                startIcon={<PauseCircleIcon />}
+                onClick={() => setInsertSilenceOpen(true)}
+                disabled={!audioBuffer}
+              >
+                插入空白音
               </Button>
             </Tooltip>
 
@@ -874,6 +922,69 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           保存并关闭
         </Button>
       </DialogActions>
+
+      {/* Insert Silence Dialog */}
+      <Dialog
+        open={insertSilenceOpen}
+        onClose={() => setInsertSilenceOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>插入空白音</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Typography variant="body2" gutterBottom>
+              设置插入静音的长度（秒）
+            </Typography>
+            <Stack spacing={3} sx={{ mt: 2 }}>
+              <Slider
+                value={silenceLength}
+                onChange={(e, v) => setSilenceLength(v)}
+                min={0}
+                max={30}
+                step={0.1}
+                marks={[
+                  { value: 0, label: '0s' },
+                  { value: 5, label: '5s' },
+                  { value: 10, label: '10s' },
+                  { value: 15, label: '15s' },
+                  { value: 20, label: '20s' },
+                  { value: 25, label: '25s' },
+                  { value: 30, label: '30s' },
+                ]}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(v) => `${v.toFixed(1)}秒`}
+              />
+              <TextField
+                label="秒数"
+                type="number"
+                value={silenceLength}
+                onChange={(e) => {
+                  const value = parseFloat(e.target.value);
+                  if (!isNaN(value) && value >= 0 && value <= 30) {
+                    setSilenceLength(value);
+                  }
+                }}
+                inputProps={{
+                  min: 0,
+                  max: 30,
+                  step: 0.1,
+                }}
+                fullWidth
+              />
+              <Typography variant="body2" color="text.secondary">
+                将在{cursorTime !== null ? '光标位置' : '当前播放位置'}插入 {silenceLength.toFixed(1)} 秒的静音
+              </Typography>
+            </Stack>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInsertSilenceOpen(false)}>取消</Button>
+          <Button variant="contained" onClick={handleConfirmInsertSilence}>
+            确认
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 }
