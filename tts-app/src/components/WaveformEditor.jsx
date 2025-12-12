@@ -213,19 +213,19 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     wavesurfer.on('play', () => setIsPlaying(true));
     wavesurfer.on('pause', () => setIsPlaying(false));
     wavesurfer.on('finish', () => {
-      console.log('Audio finished, looping:', loopingRef.current, 'selection:', selectionRef.current);
-      // If looping is enabled, restart playback immediately
+      // If looping is enabled, restart playback
       if (loopingRef.current) {
-        if (selectionRef.current) {
-          // Loop from selection start if we have a selection
-          console.log('Restarting from selection start:', selectionRef.current.start);
-          wavesurfer.setTime(selectionRef.current.start);
+        if (selectionRef.current && selectionRef.current.region) {
+          // Suppress the seek event that will be triggered by region.play()
+          // to prevent clearing the selection during loop restart
+          suppressNextSeekRef.current = true;
+          // Loop from selection start using region.play() for continuous looping
+          selectionRef.current.region.play();
         } else {
-          // Loop from beginning if no selection (loop entire audio)
-          console.log('Restarting from beginning');
+          // Loop from beginning (loop entire audio when no selection)
           wavesurfer.setTime(0);
+          wavesurfer.play();
         }
-        wavesurfer.play();
       } else {
         // Only set playing to false if not looping
         setIsPlaying(false);
@@ -234,9 +234,13 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
     // Handle seek events as cursor placement
     wavesurfer.on('seeking', (time) => {
-      // Ignore seek events that occur during drag-selection
+      // Ignore seek events that occur during drag-selection or loop playback
       if (suppressNextSeekRef.current) {
         suppressNextSeekRef.current = false;
+        return;
+      }
+      // Don't clear selection when looping - the seek is from loop restart, not user click
+      if (loopingRef.current && selectionRef.current) {
         return;
       }
       // User clicked to seek - treat as cursor placement and clear selection
@@ -244,23 +248,8 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
       clearSelection();
     });
     
-    // Track last loop time to prevent rapid consecutive loops
-    let lastLoopTime = 0;
-    const loopDebounceMs = 100; // 100ms debounce to prevent stuttering
-    
     wavesurfer.on('timeupdate', (time) => {
       setCurrentTime(time);
-      // Check if we need to loop back to selection start
-      // Add a small tolerance (0.05s) to prevent edge cases where time exactly equals end
-      if (loopingRef.current && selectionRef.current && time >= selectionRef.current.end - 0.05) {
-        const now = Date.now();
-        // Debounce to prevent infinite loops or stuttering
-        if (now - lastLoopTime > loopDebounceMs) {
-          console.log('Looping back to selection start:', selectionRef.current.start, 'from time:', time);
-          lastLoopTime = now;
-          wavesurfer.setTime(selectionRef.current.start);
-        }
-      }
     });
 
     // Region events for selection
@@ -289,6 +278,18 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         end: region.end,
         region: region
       });
+    });
+
+    // Handle region-out event for loop playback
+    // This fires when playback exits a region, allowing reliable loop detection
+    regionsPlugin.on('region-out', (region) => {
+      if (loopingRef.current) {
+        // Suppress the seek event that will be triggered by region.play()
+        // to prevent clearing the selection during loop restart
+        suppressNextSeekRef.current = true;
+        // When looping is enabled and playback exits the region, restart from the beginning of the region
+        region.play();
+      }
     });
 
     // Enable region creation on drag
@@ -352,10 +353,14 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     
     // When enabling loop with a selection, immediately start playing from selection start
     if (newLooping && selection && wavesurferRef.current) {
-      console.log('Loop enabled with selection:', selection);
-      wavesurferRef.current.pause(); // Pause first to ensure clean state
-      wavesurferRef.current.setTime(selection.start);
-      wavesurferRef.current.play();
+      if (selection.region) {
+        // Use region.play() for consistent behavior with the region-out handler
+        selection.region.play();
+      } else {
+        // Fallback: use wavesurfer directly if region reference isn't available
+        wavesurferRef.current.setTime(selection.start);
+        wavesurferRef.current.play();
+      }
     }
   }, [isLooping, selection]);
 
