@@ -19,6 +19,7 @@ import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import CloseIcon from '@mui/icons-material/Close';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/plugins/regions';
+import { replaceSelection, insertAtPosition } from '../utils/audioUtils';
 
 // Helper function to convert AudioBuffer to WAV Blob (outside component)
 function bufferToWaveBlob(buffer) {
@@ -82,6 +83,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [selection, setSelection] = useState(null);
+  const [cursorTime, setCursorTime] = useState(null);
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [clipboard, setClipboard] = useState(null);
@@ -93,6 +95,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const regionsPluginRef = useRef(null);
   const tempUrlRef = useRef(null); // Track temporary object URLs for cleanup
   const loopingRef = useRef(false); // Track loop state to avoid stale closure
+  const suppressNextSeekRef = useRef(false); // Suppress seek event during drag-selection
 
   // Store refs for functions that need to be called from useEffect
   const historyRef = useRef(history);
@@ -213,6 +216,18 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         wavesurfer.play();
       }
     });
+
+    // Handle seek events as cursor placement
+    wavesurfer.on('seeking', (time) => {
+      // Ignore seek events that occur during drag-selection
+      if (suppressNextSeekRef.current) {
+        suppressNextSeekRef.current = false;
+        return;
+      }
+      // User clicked to seek - treat as cursor placement and clear selection
+      setCursorTime(time);
+      clearSelection();
+    });
     
     // Track last loop time to prevent rapid consecutive loops
     let lastLoopTime = 0;
@@ -240,6 +255,10 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           existingRegion.remove();
         }
       });
+      
+      // Clear cursor when a selection is created
+      setCursorTime(null);
+      suppressNextSeekRef.current = true; // Ignore seek event that may fire during drag
       
       setSelection({
         start: region.start,
@@ -323,6 +342,12 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     setSelection(null);
   }, []);
 
+  // Clear both selection and cursor
+  const clearSelectionAndCursor = useCallback(() => {
+    clearSelection();
+    setCursorTime(null);
+  }, [clearSelection]);
+
   // Update audio buffer and history - moved before functions that use it
   const updateAudioBuffer = useCallback((newBuffer) => {
     setAudioBuffer(newBuffer);
@@ -403,45 +428,54 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     }
 
     updateAudioBuffer(newBuffer);
-    clearSelection();
-  }, [selection, audioBuffer, handleCopy, updateAudioBuffer, clearSelection]);
+    clearSelectionAndCursor();
+  }, [selection, audioBuffer, handleCopy, updateAudioBuffer, clearSelectionAndCursor]);
 
   // Paste from clipboard
   const handlePaste = useCallback(() => {
     if (!clipboard || !audioBuffer) return;
 
-    const insertPosition = selection 
-      ? Math.floor(selection.start * audioBuffer.sampleRate)
-      : Math.floor(currentTime * audioBuffer.sampleRate);
+    try {
+      let newBuffer;
 
-    const newLength = audioBuffer.length + clipboard.length;
-    const newBuffer = audioContextRef.current.createBuffer(
-      audioBuffer.numberOfChannels,
-      newLength,
-      audioBuffer.sampleRate
-    );
+      if (selection) {
+        // Replace selection with clipboard content
+        const selectionStartSample = Math.floor(selection.start * audioBuffer.sampleRate);
+        const selectionEndSample = Math.floor(selection.end * audioBuffer.sampleRate);
+        newBuffer = replaceSelection(
+          audioBuffer,
+          clipboard,
+          selectionStartSample,
+          selectionEndSample,
+          audioContextRef.current
+        );
+        clearSelectionAndCursor();
+      } else if (cursorTime !== null) {
+        // Insert at cursor position
+        const insertPosition = Math.floor(cursorTime * audioBuffer.sampleRate);
+        newBuffer = insertAtPosition(
+          audioBuffer,
+          clipboard,
+          insertPosition,
+          audioContextRef.current
+        );
+        clearSelectionAndCursor();
+      } else {
+        // Insert at currentTime
+        const insertPosition = Math.floor(currentTime * audioBuffer.sampleRate);
+        newBuffer = insertAtPosition(
+          audioBuffer,
+          clipboard,
+          insertPosition,
+          audioContextRef.current
+        );
+      }
 
-    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-      const sourceData = audioBuffer.getChannelData(channel);
-      const clipboardData = clipboard.getChannelData(channel % clipboard.numberOfChannels);
-      const newData = newBuffer.getChannelData(channel);
-
-      // Copy before insertion point
-      for (let i = 0; i < insertPosition; i++) {
-        newData[i] = sourceData[i];
-      }
-      // Insert clipboard
-      for (let i = 0; i < clipboard.length; i++) {
-        newData[insertPosition + i] = clipboardData[i];
-      }
-      // Copy after insertion point
-      for (let i = insertPosition; i < audioBuffer.length; i++) {
-        newData[i + clipboard.length] = sourceData[i];
-      }
+      updateAudioBuffer(newBuffer);
+    } catch (error) {
+      console.error('Failed to paste audio:', error);
     }
-
-    updateAudioBuffer(newBuffer);
-  }, [clipboard, audioBuffer, selection, currentTime, updateAudioBuffer]);
+  }, [clipboard, audioBuffer, selection, cursorTime, currentTime, updateAudioBuffer, clearSelectionAndCursor]);
 
   // Adjust volume/loudness for selection or entire audio
   const handleVolumeAdjust = useCallback((newVolume) => {
@@ -710,6 +744,13 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
               (时长: {formatTime(selection.end - selection.start)})
             </Typography>
           )}
+
+          {/* Cursor info */}
+          {!selection && cursorTime !== null && (
+            <Typography variant="body2" color="secondary" sx={{ mt: 1 }}>
+              光标位置: {formatTime(cursorTime)}
+            </Typography>
+          )}
         </Paper>
 
         {/* Controls */}
@@ -821,7 +862,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
         {/* Help Text */}
         <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-          提示：在波形上拖动可创建选区，使用工具栏按钮或快捷键进行编辑操作。
+          提示：在波形上拖动可创建选区，单击可放置光标。粘贴时：有选区则替换选区内容，有光标则在光标位置插入，否则在当前播放位置插入。
           循环播放：选择区域后点击循环按钮，播放到选区右边界时会自动从左边界继续播放。
           快捷键：空格(播放/停止)、Ctrl+C(复制)、Ctrl+X(剪切)、Ctrl+V(粘贴)、Ctrl+S(保存)、Ctrl+Z(撤销)、Ctrl+Y(恢复)
         </Typography>
