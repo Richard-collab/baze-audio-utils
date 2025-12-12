@@ -211,8 +211,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     wavesurfer.on('play', () => setIsPlaying(true));
     wavesurfer.on('pause', () => setIsPlaying(false));
     wavesurfer.on('finish', () => {
-      setIsPlaying(false);
-      // If looping is enabled, restart playback
+      // If looping is enabled, restart playback immediately
       if (loopingRef.current) {
         if (selectionRef.current) {
           // Loop from selection start if we have a selection
@@ -222,6 +221,9 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
           wavesurfer.setTime(0);
         }
         wavesurfer.play();
+      } else {
+        // Only set playing to false if not looping
+        setIsPlaying(false);
       }
     });
 
@@ -885,12 +887,16 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
             <Box>
               <Typography variant="body2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <VolumeUpIcon fontSize="small" />
-                响度调整 {selection ? '(选区)' : '(全局)'}
+                响度调整 {selection ? '(选区)' : '(全局)'} - {Math.round(loudnessMultiplier * 100)}%
               </Typography>
               <Stack direction="row" spacing={2} alignItems="center">
                 <Slider
                   value={loudnessMultiplier}
                   onChange={(e, v) => setLoudnessMultiplier(v)}
+                  onChangeCommitted={(e, v) => {
+                    handleVolumeAdjust(v);
+                    setLoudnessMultiplier(1.0);
+                  }}
                   min={0.1}
                   max={3}
                   step={0.1}
@@ -898,46 +904,6 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
                   valueLabelFormat={(v) => `${Math.round(v * 100)}%`}
                   sx={{ flex: 1 }}
                 />
-                <Button 
-                  variant="outlined" 
-                  size="small"
-                  onClick={() => {
-                    handleVolumeAdjust(loudnessMultiplier);
-                    setLoudnessMultiplier(1.0);
-                  }}
-                >
-                  应用
-                </Button>
-                <Button 
-                  variant="outlined" 
-                  size="small"
-                  onClick={() => {
-                    handleVolumeAdjust(0.5);
-                    setLoudnessMultiplier(1.0);
-                  }}
-                >
-                  -50%
-                </Button>
-                <Button 
-                  variant="outlined" 
-                  size="small"
-                  onClick={() => {
-                    handleVolumeAdjust(1.5);
-                    setLoudnessMultiplier(1.0);
-                  }}
-                >
-                  +50%
-                </Button>
-                <Button 
-                  variant="outlined" 
-                  size="small"
-                  onClick={() => {
-                    handleVolumeAdjust(2.0);
-                    setLoudnessMultiplier(1.0);
-                  }}
-                >
-                  +100%
-                </Button>
               </Stack>
             </Box>
 
