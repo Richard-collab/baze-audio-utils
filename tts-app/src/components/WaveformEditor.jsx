@@ -512,7 +512,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     } catch (error) {
       console.error('Failed to insert silence:', error);
     }
-  }, [audioBuffer, silenceLength, cursorTime, currentTime, updateAudioBuffer, clearSelection]);
+  }, [audioBuffer, silenceLength, cursorTime, currentTime, updateAudioBuffer, clearSelection, setCursorTime]);
 
   // Adjust volume/loudness for selection or entire audio
   const handleVolumeAdjust = useCallback((newVolume) => {
