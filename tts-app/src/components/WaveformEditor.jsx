@@ -207,38 +207,16 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     wavesurfer.on('pause', () => setIsPlaying(false));
     wavesurfer.on('finish', () => {
       setIsPlaying(false);
-      // If looping is enabled and we have a selection, restart from selection start
-      if (loopingRef.current && selectionRef.current) {
-        wavesurfer.setTime(selectionRef.current.start);
-        wavesurfer.play();
-      }
+      // Note: When using region.play() with region.loop enabled,
+      // the regions plugin handles looping automatically.
+      // This event is primarily for when the entire audio finishes
+      // during normal (non-region) playback.
     });
-    
-    // Track last loop time to prevent rapid consecutive loops
-    let lastLoopTime = 0;
-    const loopDebounceMs = 100; // 100ms debounce to prevent stuttering
     
     wavesurfer.on('timeupdate', (time) => {
       setCurrentTime(time);
-      // Check if we need to loop back to selection start
-      // When looping is enabled and we have a selection, check if we've reached the end
-      if (loopingRef.current && selectionRef.current) {
-        const selection = selectionRef.current;
-        // Add a small tolerance (0.05s) to prevent edge cases where time exactly equals end
-        if (time >= selection.end - 0.05) {
-          const now = Date.now();
-          // Debounce to prevent infinite loops or stuttering
-          if (now - lastLoopTime > loopDebounceMs) {
-            lastLoopTime = now;
-            // Pause current playback first to reset state cleanly
-            wavesurfer.pause();
-            // Set time to selection start
-            wavesurfer.setTime(selection.start);
-            // Resume playback
-            wavesurfer.play();
-          }
-        }
-      }
+      // Note: When using region.play() with region.loop enabled, 
+      // the regions plugin handles looping automatically.
     });
 
     // Region events for selection
@@ -274,6 +252,10 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     // Handle region click to play the region
     regionsPlugin.on('region-clicked', (region, e) => {
       e.stopPropagation();
+      // If already playing, pause first to allow restarting from region start
+      if (wavesurfer.isPlaying()) {
+        wavesurfer.pause();
+      }
       // Play the region - WaveSurfer.js will respect the region's loop property
       region.play();
     });
