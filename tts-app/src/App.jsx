@@ -595,20 +595,62 @@ function App() {
       const audioContext = new AudioContext();
       // Using 8000 Hz to match the TTS server's output sample rate for consistency
       const sampleRate = 8000;
-      const duration = 3; // 3 seconds
+      const duration = 5; // 5 seconds for better loop testing
       const numSamples = sampleRate * duration;
       
       // Create a buffer
       const buffer = audioContext.createBuffer(1, numSamples, sampleRate);
       const channelData = buffer.getChannelData(0);
       
-      // Generate a sine wave with varying frequency for an interesting waveform
+      // Generate audio with distinct sections for easier loop testing
+      // Section 1 (0-1s): Low tone (220Hz)
+      // Section 2 (1-2s): Medium tone (440Hz) 
+      // Section 3 (2-3s): High tone (880Hz)
+      // Section 4 (3-4s): Frequency sweep from 220Hz to 880Hz
+      // Section 5 (4-5s): Chord (220Hz + 440Hz + 660Hz)
       for (let i = 0; i < numSamples; i++) {
         const t = i / sampleRate;
-        // Create a more interesting waveform with multiple frequencies
-        channelData[i] = 0.5 * Math.sin(2 * Math.PI * 440 * t) + 
-                         0.3 * Math.sin(2 * Math.PI * 880 * t) +
-                         0.2 * Math.sin(2 * Math.PI * 220 * t);
+        let sample = 0;
+        
+        if (t < 1) {
+          // Section 1: Low tone
+          sample = 0.6 * Math.sin(2 * Math.PI * 220 * t);
+        } else if (t < 2) {
+          // Section 2: Medium tone
+          sample = 0.6 * Math.sin(2 * Math.PI * 440 * t);
+        } else if (t < 3) {
+          // Section 3: High tone
+          sample = 0.6 * Math.sin(2 * Math.PI * 880 * t);
+        } else if (t < 4) {
+          // Section 4: Frequency sweep (glissando effect)
+          const sweepProgress = (t - 3); // 0 to 1
+          const frequency = 220 + (880 - 220) * sweepProgress;
+          sample = 0.6 * Math.sin(2 * Math.PI * frequency * t);
+        } else {
+          // Section 5: Chord (major chord effect)
+          sample = 0.3 * Math.sin(2 * Math.PI * 220 * t) + 
+                   0.3 * Math.sin(2 * Math.PI * 440 * t) +
+                   0.2 * Math.sin(2 * Math.PI * 660 * t);
+        }
+        
+        // Apply envelope to avoid clicks at section boundaries
+        const fadeTime = 0.02; // 20ms fade
+        const sectionStart = Math.floor(t);
+        const timeInSection = t - sectionStart;
+        let envelope = 1;
+        if (timeInSection < fadeTime) {
+          envelope = timeInSection / fadeTime;
+        } else if (timeInSection > (1 - fadeTime)) {
+          // Fade out at section boundaries (applies to all sections including the last one)
+          envelope = (1 - timeInSection) / fadeTime;
+        }
+        // Apply final fade-out at the very end of the audio
+        const timeToEnd = duration - t;
+        if (timeToEnd < fadeTime) {
+          envelope *= timeToEnd / fadeTime;
+        }
+        
+        channelData[i] = sample * envelope;
       }
       
       // Convert to WAV blob
@@ -618,9 +660,9 @@ function App() {
       // Create a test audio group
       const testGroup = {
         index: '测试音频',
-        text: '这是一个测试音频，用于测试波形编辑器功能',
+        text: '这是一个测试音频，用于测试波形编辑器和循环播放功能。音频包含5个不同音调的段落：低音(0-1秒)、中音(1-2秒)、高音(2-3秒)、滑音(3-4秒)、和弦(4-5秒)',
         segments: [{
-          text: '测试音频片段 - 点击编辑按钮打开波形编辑器',
+          text: '测试音频片段 - 包含不同音调，适合测试循环播放。选择一段区域后点击循环按钮试试！',
           blob: wavBlob,
           url: audioUrl,
           played: false
@@ -628,7 +670,7 @@ function App() {
       };
       
       setAudioGroups([testGroup]);
-      setMessage({ text: '测试音频已生成，请点击编辑按钮测试波形编辑器', type: 'success' });
+      setMessage({ text: '测试音频已生成，请点击编辑按钮测试波形编辑器和循环播放功能', type: 'success' });
     } catch (error) {
       setMessage({ text: `生成测试音频失败: ${error.message}`, type: 'error' });
     }
