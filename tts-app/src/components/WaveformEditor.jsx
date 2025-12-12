@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Box, Button, IconButton, Slider, Typography, Tooltip, Divider,
-  Paper, Stack
+  Paper, Stack, TextField
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
@@ -17,6 +17,7 @@ import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import CloseIcon from '@mui/icons-material/Close';
+import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/plugins/regions';
 import { replaceSelection, insertAtPosition } from '../utils/audioUtils';
@@ -91,6 +92,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
   const [loudnessMultiplier, setLoudnessMultiplier] = useState(1.0);
   const [containerReady, setContainerReady] = useState(false);
   const [isWavesurferReady, setIsWavesurferReady] = useState(false);
+  const [silenceLength, setSilenceLength] = useState(1);
   const audioContextRef = useRef(null);
   const regionsPluginRef = useRef(null);
   const tempUrlRef = useRef(null); // Track temporary object URLs for cleanup
@@ -477,6 +479,41 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
     }
   }, [clipboard, audioBuffer, selection, cursorTime, currentTime, updateAudioBuffer, clearSelectionAndCursor]);
 
+  // Insert silence at cursor or current time
+  const handleInsertSilence = useCallback(() => {
+    if (!audioBuffer || !audioContextRef.current) return;
+
+    try {
+      // Create silence buffer
+      const silenceBuffer = audioContextRef.current.createBuffer(
+        audioBuffer.numberOfChannels,
+        Math.floor(audioBuffer.sampleRate * silenceLength),
+        audioBuffer.sampleRate
+      );
+      // Buffer is automatically initialized to silence (zeros)
+
+      // Determine insert position: cursor time > current time
+      const insertTime = cursorTime !== null ? cursorTime : currentTime;
+      const insertPosition = Math.floor(insertTime * audioBuffer.sampleRate);
+
+      // Insert silence at position
+      const newBuffer = insertAtPosition(
+        audioBuffer,
+        silenceBuffer,
+        insertPosition,
+        audioContextRef.current
+      );
+
+      updateAudioBuffer(newBuffer);
+      
+      // Update cursor to position after inserted silence for consecutive insertions
+      clearSelection();
+      setCursorTime(insertTime + silenceLength);
+    } catch (error) {
+      console.error('Failed to insert silence:', error);
+    }
+  }, [audioBuffer, silenceLength, cursorTime, currentTime, updateAudioBuffer, clearSelection]);
+
   // Adjust volume/loudness for selection or entire audio
   const handleVolumeAdjust = useCallback((newVolume) => {
     if (!audioBuffer) return;
@@ -615,6 +652,26 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         {/* Toolbar */}
         <Paper sx={{ p: 1, mb: 2, bgcolor: '#F8F9FA' }}>
           <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center" justifyContent="center">
+            {/* Silence Length Input */}
+            <TextField
+              label="空白音(秒)"
+              type="number"
+              value={silenceLength}
+              onChange={(e) => {
+                const value = parseFloat(e.target.value);
+                if (!isNaN(value) && value >= 0.1 && value <= 30) {
+                  setSilenceLength(value);
+                }
+              }}
+              inputProps={{
+                min: 0.1,
+                max: 30,
+                step: 0.1,
+              }}
+              size="small"
+              sx={{ width: 120 }}
+            />
+
             {/* Loop Toggle */}
             <Tooltip title={isLooping ? "关闭循环播放" : "开启循环播放选区 (需要先选择区域)"}>
               <Button
@@ -663,6 +720,18 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
                 disabled={!selection}
               >
                 剪切
+              </Button>
+            </Tooltip>
+
+            {/* Insert Silence */}
+            <Tooltip title="插入空白音">
+              <Button
+                variant="outlined"
+                startIcon={<PauseCircleIcon />}
+                onClick={handleInsertSilence}
+                disabled={!audioBuffer}
+              >
+                插入空白音
               </Button>
             </Tooltip>
 
