@@ -447,6 +447,13 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
       let newBuffer;
       let pasteStartTime;
       let pasteEndTime;
+      
+      // Calculate duration of pasted content in seconds
+      // Use clipboard's sample rate for accurate duration calculation
+      const pasteDuration = clipboard.length / clipboard.sampleRate;
+      
+      // Delay for waveform reload before creating selection region
+      const WAVEFORM_RELOAD_DELAY_MS = 100;
 
       if (selection) {
         // Replace selection with clipboard content
@@ -461,7 +468,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         );
         // Calculate time range of pasted content
         pasteStartTime = selection.start;
-        pasteEndTime = pasteStartTime + (clipboard.length / audioBuffer.sampleRate);
+        pasteEndTime = pasteStartTime + pasteDuration;
         clearSelectionAndCursor();
       } else if (cursorTime !== null) {
         // Insert at cursor position
@@ -474,7 +481,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         );
         // Calculate time range of pasted content
         pasteStartTime = cursorTime;
-        pasteEndTime = pasteStartTime + (clipboard.length / audioBuffer.sampleRate);
+        pasteEndTime = pasteStartTime + pasteDuration;
         clearSelectionAndCursor();
       } else {
         // Insert at currentTime
@@ -487,7 +494,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
         );
         // Calculate time range of pasted content
         pasteStartTime = currentTime;
-        pasteEndTime = pasteStartTime + (clipboard.length / audioBuffer.sampleRate);
+        pasteEndTime = pasteStartTime + pasteDuration;
       }
 
       updateAudioBuffer(newBuffer);
@@ -502,7 +509,7 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
             color: 'rgba(108, 92, 231, 0.3)',
           });
         }
-      }, 100);
+      }, WAVEFORM_RELOAD_DELAY_MS);
     } catch (error) {
       console.error('Failed to paste audio:', error);
     }
