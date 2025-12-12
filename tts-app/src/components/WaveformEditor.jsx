@@ -234,9 +234,13 @@ function WaveformEditor({ open, onClose, audioUrl, audioBlob, onSave }) {
 
     // Handle seek events as cursor placement
     wavesurfer.on('seeking', (time) => {
-      // Ignore seek events that occur during drag-selection
+      // Ignore seek events that occur during drag-selection or loop playback
       if (suppressNextSeekRef.current) {
         suppressNextSeekRef.current = false;
+        return;
+      }
+      // Don't clear selection when looping - the seek is from loop restart, not user click
+      if (loopingRef.current && selectionRef.current) {
         return;
       }
       // User clicked to seek - treat as cursor placement and clear selection
